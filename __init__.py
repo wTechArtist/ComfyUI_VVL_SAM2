@@ -68,9 +68,10 @@ class F2S2GenerateMask:
 
     RETURN_TYPES = ("IMAGE", "MASK", "IMAGE",)
     RETURN_NAMES = ("annotated_image", "object_masks", "masked_image",)
-    OUTPUT_IS_LIST = (False, True, False)
     FUNCTION = "_process_image"
     CATEGORY = "💃rDancer"
+    # 指示第二个输出 (object_masks) 为列表
+    OUTPUT_IS_LIST = (False, True, False)
 
     def _process_image(self, sam2_model: str, device: str, image: torch.Tensor, prompt: str = None, keep_model_loaded: bool = False):
         torch_device = torch.device(device)
@@ -83,7 +84,6 @@ class F2S2GenerateMask:
             keep_model_loaded = keep_model_loaded if i == (image.size(0) - 1) else True
             annotated_image, _, object_masks_pil, masked_image = process_image(torch_device, sam2_model, img, prompt, keep_model_loaded)
             annotated_images.append(pil2tensor(annotated_image))
-            # 将每个对象 mask 转 tensor，并累积到列表（list）中
             if len(object_masks_pil) > 0:
                 object_masks_list.extend([pil2tensor(m) for m in object_masks_pil])
             masked_images.append(pil2tensor(masked_image))
