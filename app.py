@@ -17,21 +17,17 @@ try:
     from utils.video import generate_unique_name, create_directory, delete_directory
 
     from utils.florence import load_florence_model, run_florence_inference, \
-        FLORENCE_OPEN_VOCABULARY_DETECTION_TASK #,
-        # FLORENCE_DETAILED_CAPTION_TASK, FLORENCE_CAPTION_TO_PHRASE_GROUNDING_TASK
-    from utils.modes import IMAGE_INFERENCE_MODES, IMAGE_OPEN_VOCABULARY_DETECTION_MODE #, \
-        # IMAGE_CAPTION_GROUNDING_MASKS_MODE, VIDEO_INFERENCE_MODES
-    from utils.sam import load_sam_image_model, run_sam_inference #, load_sam_video_model
+        FLORENCE_OPEN_VOCABULARY_DETECTION_TASK, FLORENCE_DETAILED_CAPTION_TASK, FLORENCE_CAPTION_TO_PHRASE_GROUNDING_TASK
+    from utils.modes import IMAGE_INFERENCE_MODES, IMAGE_OPEN_VOCABULARY_DETECTION_MODE, IMAGE_CAPTION_GROUNDING_MASKS_MODE, VIDEO_INFERENCE_MODES
+    from utils.sam import load_sam_image_model, run_sam_inference, load_sam_video_model
 except ImportError:
     # We're running as a module
     from .utils.video import generate_unique_name, create_directory, delete_directory
 
     from .utils.florence import load_florence_model, run_florence_inference, \
-        FLORENCE_OPEN_VOCABULARY_DETECTION_TASK #,
-        # FLORENCE_DETAILED_CAPTION_TASK, FLORENCE_CAPTION_TO_PHRASE_GROUNDING_TASK
-    from .utils.modes import IMAGE_INFERENCE_MODES, IMAGE_OPEN_VOCABULARY_DETECTION_MODE #, \
-        # IMAGE_CAPTION_GROUNDING_MASKS_MODE, VIDEO_INFERENCE_MODES
-    from .utils.sam import load_sam_image_model, run_sam_inference #, load_sam_video_model
+        FLORENCE_OPEN_VOCABULARY_DETECTION_TASK, FLORENCE_DETAILED_CAPTION_TASK, FLORENCE_CAPTION_TO_PHRASE_GROUNDING_TASK
+    from .utils.modes import IMAGE_INFERENCE_MODES, IMAGE_OPEN_VOCABULARY_DETECTION_MODE, IMAGE_CAPTION_GROUNDING_MASKS_MODE, VIDEO_INFERENCE_MODES
+    from .utils.sam import load_sam_image_model, run_sam_inference, load_sam_video_model
 
 # MARKDOWN = """
 # # Florence2 + SAM2 🔥
@@ -183,21 +179,54 @@ def offload_models(delete=False):
     if do_gc:
         gc.collect()
 
-def process_image(device: torch.device, sam_image_model: str, image: Image.Image, promt: str, keep_model_loaded: bool) -> Tuple[Optional[Image.Image], Optional[Image.Image], Optional[Image.Image]]:
+def process_image(device: torch.device, sam_image_model: str, image: Image.Image, promt: str, keep_model_loaded: bool) -> Tuple[Optional[Image.Image], Optional[Image.Image], Optional[list], Optional[Image.Image]]:
+    """Wrapper exposed to ComfyUI node.
+
+    根据 `promt` 是否为空来选择运行模式：
+    1. 非空 -> open vocabulary detection
+    2. 为空  -> caption + phrase grounding
+
+    返回：
+        annotated_image: 带标注的彩色图
+        merged_mask_pil: 所有掩码合并后的灰度图
+        object_masks_pil: list[Image.Image]，每个元素对应一个目标的灰度掩码（255/0）
+        masked_image: 合并掩码下的遮罩图
+    """
     lazy_load_models(device, sam_image_model)
-    annotated_image, mask_list = _process_image(IMAGE_OPEN_VOCABULARY_DETECTION_MODE, image, promt)
-    if mask_list is not None and len(mask_list) > 0:
-        mask = np.any(mask_list, axis=0) # Merge masks into a single mask
-        mask = (mask * 255).astype(np.uint8)
+
+    prompt_clean = promt.strip() if promt else ""
+    if prompt_clean == "":
+        mode = IMAGE_CAPTION_GROUNDING_MASKS_MODE
+        text_param = None
     else:
-        print(f"Florence2SAM2: No objects of class {promt} found in the image.")
+        mode = IMAGE_OPEN_VOCABULARY_DETECTION_MODE
+        text_param = prompt_clean
+
+    annotated_image, mask_list = _process_image(mode, image, text_param)
+
+    object_masks_pil = []
+    if mask_list is not None and len(mask_list) > 0:
+        # 将所有检测到的 mask 合并成单一灰度 mask 方便后续使用
+        mask_np = np.any(mask_list, axis=0)
+        mask = (mask_np * 255).astype(np.uint8)
+        # 单独对象 mask 转为 PIL
+        for m in mask_list:
+            object_masks_pil.append(Image.fromarray((m * 255).astype(np.uint8)).convert("L"))
+    else:
+        if prompt_clean:
+            print(f"Florence2SAM2: No objects found for prompt '{prompt_clean}'.")
+        else:
+            print("Florence2SAM2: No objects detected in caption-grounding mode.")
         mask = np.zeros((image.height, image.width), dtype=np.uint8)
-    mask = Image.fromarray(mask).convert("L") # Convert to 8-bit grayscale
+
+    merged_mask_pil = Image.fromarray(mask).convert("L")  # 转为 8-bit 灰度
     masked_image = Image.new("RGB", image.size, (0, 0, 0))
-    masked_image.paste(image, mask=mask)
+    masked_image.paste(image, mask=merged_mask_pil)
+
     if not keep_model_loaded:
         offload_models()
-    return annotated_image, mask, masked_image
+
+    return annotated_image, merged_mask_pil, object_masks_pil, masked_image
 
 @torch.inference_mode()
 @torch.autocast(device_type="cuda", dtype=torch.bfloat16)
@@ -251,30 +280,30 @@ def _process_image(
         detections = run_sam_inference(SAM_IMAGE_MODEL, image_input, detections)
         return annotate_image(image_input, detections), detections.mask
 
-#     if mode_dropdown == IMAGE_CAPTION_GROUNDING_MASKS_MODE:
-#         _, result = run_florence_inference(
-#             model=FLORENCE_MODEL,
-#             processor=FLORENCE_PROCESSOR,
-#             device=DEVICE,
-#             image=image_input,
-#             task=FLORENCE_DETAILED_CAPTION_TASK
-#         )
-#         caption = result[FLORENCE_DETAILED_CAPTION_TASK]
-#         _, result = run_florence_inference(
-#             model=FLORENCE_MODEL,
-#             processor=FLORENCE_PROCESSOR,
-#             device=DEVICE,
-#             image=image_input,
-#             task=FLORENCE_CAPTION_TO_PHRASE_GROUNDING_TASK,
-#             text=caption
-#         )
-#         detections = sv.Detections.from_lmm(
-#             lmm=sv.LMM.FLORENCE_2,
-#             result=result,
-#             resolution_wh=image_input.size
-#         )
-#         detections = run_sam_inference(SAM_IMAGE_MODEL, image_input, detections)
-#         return annotate_image(image_input, detections), caption
+    if mode_dropdown == IMAGE_CAPTION_GROUNDING_MASKS_MODE:
+        _, result = run_florence_inference(
+            model=FLORENCE_MODEL,
+            processor=FLORENCE_PROCESSOR,
+            device=DEVICE,
+            image=image_input,
+            task=FLORENCE_DETAILED_CAPTION_TASK
+        )
+        caption = result[FLORENCE_DETAILED_CAPTION_TASK]
+        _, result = run_florence_inference(
+            model=FLORENCE_MODEL,
+            processor=FLORENCE_PROCESSOR,
+            device=DEVICE,
+            image=image_input,
+            task=FLORENCE_CAPTION_TO_PHRASE_GROUNDING_TASK,
+            text=caption
+        )
+        detections = sv.Detections.from_lmm(
+            lmm=sv.LMM.FLORENCE_2,
+            result=result,
+            resolution_wh=image_input.size
+        )
+        detections = run_sam_inference(SAM_IMAGE_MODEL, image_input, detections)
+        return annotate_image(image_input, detections), detections.mask
 
 
 # @spaces.GPU(duration=300)

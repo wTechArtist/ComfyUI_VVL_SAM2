@@ -59,39 +59,44 @@ class F2S2GenerateMask:
                 "sam2_model": (model_list, {"default": "sam2_hiera_small.pt"}),
                 "device": (device_list,),
                 "image": ("IMAGE",),
-                "prompt": ("STRING", {"default": "subject"}),
+                "prompt": ("STRING", {"default": ""}),
             },
             "optional": {
                 "keep_model_loaded": ("BOOLEAN", {"default": False}),
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE",)
-    RETURN_NAMES = ("annotated_image", "mask", "masked_image",)
+    RETURN_TYPES = ("IMAGE", "MASK", "MASK", "IMAGE",)
+    RETURN_NAMES = ("annotated_image", "mask", "object_masks", "masked_image",)
+    OUTPUT_IS_LIST = (False, False, True, False)
     FUNCTION = "_process_image"
     CATEGORY = "💃rDancer"
 
     def _process_image(self, sam2_model: str, device: str, image: torch.Tensor, prompt: str = None, keep_model_loaded: bool = False):
         torch_device = torch.device(device)
         prompt = prompt.strip() if prompt else ""
-        annotated_images, masks, masked_images = [], [], []
+        annotated_images, masks, object_masks_list, masked_images = [], [], [], []
         # Convert image from tensor to PIL
         # the image has an extra batch dimension, despite the variable name
         for i, img in enumerate(image):
             img = tensor2pil(img).convert("RGB")
             keep_model_loaded = keep_model_loaded if i == (image.size(0) - 1) else True
-            annotated_image, mask, masked_image = process_image(torch_device, sam2_model, img, prompt, keep_model_loaded)
+            annotated_image, merged_mask, object_masks_pil, masked_image = process_image(torch_device, sam2_model, img, prompt, keep_model_loaded)
             annotated_images.append(pil2tensor(annotated_image))
-            masks.append(pil2tensor(mask))
+            masks.append(pil2tensor(merged_mask))
+            # 将每个对象 mask 转 tensor，并累积到列表（list）中
+            if len(object_masks_pil) > 0:
+                object_masks_list.extend([pil2tensor(m) for m in object_masks_pil])
             masked_images.append(pil2tensor(masked_image))
         annotated_images = torch.stack(annotated_images)
         masks = torch.stack(masks)
+        # 若未检测到任何对象，返回空 list
         masked_images = torch.stack(masked_images)
-        return (annotated_images, masks, masked_images, )
+        return (annotated_images, masks, object_masks_list, masked_images, )
 
 
 NODE_CLASS_MAPPINGS = {
-    "RdancerFlorence2SAM2GenerateMask": F2S2GenerateMask
+    "WWL_Florence2SAM2": F2S2GenerateMask
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS"]
