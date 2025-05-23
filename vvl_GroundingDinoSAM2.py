@@ -1,5 +1,5 @@
 import torch
-from PIL import Image
+from PIL import Image, ImageDraw
 import numpy as np
 import os
 import json
@@ -377,9 +377,46 @@ class VVL_GroundingDinoSAM2:
             # Use SAM2 for segmentation
             output_images, output_masks = sam2_segment(SAM2_MODEL, img_pil, boxes)
             
-            # Create annotated image (simple bounding box overlay)
+            # Create annotated image with bounding boxes
             annotated_img = img_pil.copy()
-            # Here you could add bounding box drawing code if needed
+            draw = ImageDraw.Draw(annotated_img)
+            
+            # Draw bounding boxes and labels
+            for j, bbox in enumerate(boxes):
+                if j < len(object_names):
+                    x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                    
+                    # Draw rectangle
+                    draw.rectangle([x1, y1, x2, y2], outline=(255, 0, 0), width=3)
+                    
+                    # Draw label
+                    label = object_names[j] if j < len(object_names) else f"object_{j+1}"
+                    
+                    # 处理不同版本PIL的文本绘制
+                    try:
+                        # 尝试使用新版本API
+                        from PIL import ImageFont
+                        font = ImageFont.load_default()
+                        text_bbox = draw.textbbox((x1, y1), label, font=font)
+                        text_width = text_bbox[2] - text_bbox[0]
+                        text_height = text_bbox[3] - text_bbox[1]
+                        
+                        # 绘制文本背景
+                        draw.rectangle([x1, y1, x1 + text_width, y1 + text_height], fill=(255, 0, 0))
+                        
+                        # 绘制文本
+                        draw.text((x1, y1), label, fill=(255, 255, 255), font=font)
+                    except (AttributeError, ImportError):
+                        # 回退到旧版本API
+                        text_width = len(label) * 6  # 估算文本宽度
+                        text_height = 15  # 估算文本高度
+                        
+                        # 绘制文本背景
+                        draw.rectangle([x1, y1, x1 + text_width, y1 + text_height], fill=(255, 0, 0))
+                        
+                        # 绘制文本
+                        draw.text((x1, y1), label, fill=(255, 255, 255))
+            
             annotated_images.append(pil2tensor(annotated_img))
             
             # Add masks to the list
