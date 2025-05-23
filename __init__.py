@@ -2,6 +2,7 @@ import torch
 from PIL import Image
 import numpy as np
 import os
+import json
 
 try:
     from app import process_image
@@ -66,30 +67,36 @@ class F2S2GenerateMask:
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE",)
-    RETURN_NAMES = ("annotated_image", "object_masks", "masked_image",)
+    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE", "STRING",)
+    RETURN_NAMES = ("annotated_image", "object_masks", "masked_image", "detection_json",)
     FUNCTION = "_process_image"
     CATEGORY = "💃rDancer"
     # 指示第二个输出 (object_masks) 为列表
-    OUTPUT_IS_LIST = (False, True, False)
+    OUTPUT_IS_LIST = (False, True, False, False)
 
     def _process_image(self, sam2_model: str, device: str, image: torch.Tensor, prompt: str = None, keep_model_loaded: bool = False):
         torch_device = torch.device(device)
         prompt = prompt.strip() if prompt else ""
-        annotated_images, object_masks_list, masked_images = [], [], []
+        annotated_images, object_masks_list, masked_images, detection_jsons = [], [], [], []
         # Convert image from tensor to PIL
         # the image has an extra batch dimension, despite the variable name
         for i, img in enumerate(image):
             img = tensor2pil(img).convert("RGB")
             keep_model_loaded = keep_model_loaded if i == (image.size(0) - 1) else True
-            annotated_image, _, object_masks_pil, masked_image = process_image(torch_device, sam2_model, img, prompt, keep_model_loaded)
+            annotated_image, _, object_masks_pil, masked_image, detection_json = process_image(torch_device, sam2_model, img, prompt, keep_model_loaded)
             annotated_images.append(pil2tensor(annotated_image))
             if len(object_masks_pil) > 0:
                 object_masks_list.extend([pil2tensor(m) for m in object_masks_pil])
             masked_images.append(pil2tensor(masked_image))
+            
+            # 将detection_json转换为JSON字符串
+            detection_jsons.append(json.dumps(detection_json, ensure_ascii=False, indent=2))
+            
         annotated_images = torch.stack(annotated_images)
         masked_images = torch.stack(masked_images)
-        return (annotated_images, object_masks_list, masked_images, )
+        # 对于批处理，只返回第一个图像的JSON信息，或者可以合并所有图像的信息
+        final_detection_json = detection_jsons[0] if detection_jsons else "{}"
+        return (annotated_images, object_masks_list, masked_images, final_detection_json)
 
 
 NODE_CLASS_MAPPINGS = {
