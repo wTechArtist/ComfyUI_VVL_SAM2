@@ -179,12 +179,13 @@ def offload_models(delete=False):
     if do_gc:
         gc.collect()
 
-def process_image(device: torch.device, sam_image_model: str, image: Image.Image, promt: str, keep_model_loaded: bool) -> Tuple[Optional[Image.Image], Optional[Image.Image], Optional[list], Optional[Image.Image], Optional[dict]]:
+def process_image(device: torch.device, sam_image_model: str, image: Image.Image, promt: str, keep_model_loaded: bool, external_caption: str = "") -> Tuple[Optional[Image.Image], Optional[Image.Image], Optional[list], Optional[Image.Image], Optional[dict]]:
     """Wrapper exposed to ComfyUI node.
 
-    根据 `promt` 是否为空来选择运行模式：
-    1. 非空 -> open vocabulary detection
-    2. 为空  -> caption + phrase grounding
+    根据 `promt` 是否为空以及 `external_caption` 是否提供来选择运行模式：
+    1. `promt` 非空 -> open vocabulary detection (忽略 `external_caption`)
+    2. `promt` 为空, `external_caption` 非空 -> 使用 `external_caption` 进行 phrase grounding
+    3. `promt` 为空, `external_caption` 为空 -> Florence-2 生成 caption + phrase grounding
 
     返回：
         annotated_image: 带标注的彩色图
@@ -196,14 +197,26 @@ def process_image(device: torch.device, sam_image_model: str, image: Image.Image
     lazy_load_models(device, sam_image_model)
 
     prompt_clean = promt.strip() if promt else ""
-    if prompt_clean == "":
-        mode = IMAGE_CAPTION_GROUNDING_MASKS_MODE
-        text_param = None
-    else:
+    external_caption_clean = external_caption.strip() if external_caption else ""
+
+    if prompt_clean != "":
         mode = IMAGE_OPEN_VOCABULARY_DETECTION_MODE
         text_param = prompt_clean
+        caption_to_process = None 
+    elif external_caption_clean != "":
+        mode = IMAGE_CAPTION_GROUNDING_MASKS_MODE
+        text_param = None 
+        caption_to_process = external_caption_clean
+        print(f"Florence2SAM2: Using external caption for grounding: {caption_to_process}")
+    else:
+        mode = IMAGE_CAPTION_GROUNDING_MASKS_MODE
+        text_param = None
+        caption_to_process = None 
+        print("Florence2SAM2: No prompt or external caption provided, Florence-2 will generate caption.")
 
-    annotated_image, mask_list, detections, object_names = _process_image_enhanced(mode, image, text_param)
+    annotated_image, mask_list, detections, object_names = _process_image_enhanced(
+        mode, image, text_param, caption_to_process
+    )
 
     object_masks_pil = []
     detection_json = {
@@ -325,14 +338,18 @@ def _process_image(
 @torch.inference_mode()
 @torch.autocast(device_type="cuda", dtype=torch.bfloat16)
 def _process_image_enhanced(
-    mode_dropdown=IMAGE_OPEN_VOCABULARY_DETECTION_MODE, image_input=None, text_input=None
+    mode_dropdown=IMAGE_OPEN_VOCABULARY_DETECTION_MODE, 
+    image_input=None, 
+    text_input=None, 
+    custom_caption_for_grounding: str = None
 ) -> Tuple[Optional[Image.Image], Optional[np.ndarray], Optional[Any], Optional[list]]:
     """
     Enhanced version of _process_image that returns additional detection information.
 
     @param mode_dropdown: The mode of the Florence2 model.
     @param image_input: The image to process.
-    @param text_input: The text prompt to use for the Florence2 model.
+    @param text_input: The text prompt to use for the Florence2 model (for OVD mode).
+    @param custom_caption_for_grounding: An optional custom caption to use for caption grounding mode.
 
     @return: Tuple[Image.Image, np.ndarray, Detections, List[str]]: 
              The annotated image, mask array, detections object, and object names list
@@ -343,83 +360,99 @@ def _process_image_enhanced(
 
     if not image_input:
         return None, None, None, []
-
+        
+    # 按照模式获取初始检测结果
     if mode_dropdown == IMAGE_OPEN_VOCABULARY_DETECTION_MODE:
         if not text_input:
             return None, None, None, []
-
+            
+        # 开放词汇检测模式
         texts = [prompt.strip() for prompt in text_input.split(",")]
         detections_list = []
         all_object_names = []
         
         for text in texts:
             _, result = run_florence_inference(
-                model=FLORENCE_MODEL,
-                processor=FLORENCE_PROCESSOR,
-                device=DEVICE,
-                image=image_input,
-                task=FLORENCE_OPEN_VOCABULARY_DETECTION_TASK,
-                text=text
+                model=FLORENCE_MODEL, processor=FLORENCE_PROCESSOR, device=DEVICE,
+                image=image_input, task=FLORENCE_OPEN_VOCABULARY_DETECTION_TASK, text=text
             )
             detections = sv.Detections.from_lmm(
-                lmm=sv.LMM.FLORENCE_2,
-                result=result,
-                resolution_wh=image_input.size
+                lmm=sv.LMM.FLORENCE_2, result=result, resolution_wh=image_input.size
             )
             detections = run_sam_inference(SAM_IMAGE_MODEL, image_input, detections)
             detections_list.append(detections)
-            # 为每个检测到的对象添加对应的名称
             all_object_names.extend([text] * len(detections))
 
         if detections_list:
-            detections = sv.Detections.merge(detections_list)
-            # 重新执行SAM推理以确保mask正确
-            detections = run_sam_inference(SAM_IMAGE_MODEL, image_input, detections)
-            # 由于merge可能改变顺序，我们需要重新构建对象名称列表
-            # 这里我们保持原来的名称顺序，因为merge通常保持输入顺序
-            object_names = all_object_names[:len(detections)]  # 确保长度匹配
+            final_detections = sv.Detections.merge(detections_list)
+            # 重新应用SAM，确保合并后的检测结果获得分割掩码
+            final_detections = run_sam_inference(SAM_IMAGE_MODEL, image_input, final_detections)
+            # 确保名称列表与检测结果数量匹配
+            final_object_names = all_object_names[:len(final_detections)]
         else:
-            detections = sv.Detections.empty()
-            object_names = []
+            final_detections = sv.Detections.empty()
+            final_object_names = []
             
-        return annotate_image(image_input, detections), detections.mask, detections, object_names
-
-    if mode_dropdown == IMAGE_CAPTION_GROUNDING_MASKS_MODE:
-        _, result = run_florence_inference(
-            model=FLORENCE_MODEL,
-            processor=FLORENCE_PROCESSOR,
-            device=DEVICE,
-            image=image_input,
-            task=FLORENCE_DETAILED_CAPTION_TASK
-        )
-        caption = result[FLORENCE_DETAILED_CAPTION_TASK]
-        _, result = run_florence_inference(
-            model=FLORENCE_MODEL,
-            processor=FLORENCE_PROCESSOR,
-            device=DEVICE,
-            image=image_input,
-            task=FLORENCE_CAPTION_TO_PHRASE_GROUNDING_TASK,
-            text=caption
-        )
-        detections = sv.Detections.from_lmm(
-            lmm=sv.LMM.FLORENCE_2,
-            result=result,
-            resolution_wh=image_input.size
-        )
-        detections = run_sam_inference(SAM_IMAGE_MODEL, image_input, detections)
+    elif mode_dropdown == IMAGE_CAPTION_GROUNDING_MASKS_MODE:
+        # 基于描述的定位模式
+        caption_to_use = custom_caption_for_grounding
+        if not caption_to_use:
+            # 自动生成描述
+            print("Florence2SAM2: Generating caption with Florence-2 for grounding.")
+            _, result_caption_task = run_florence_inference(
+                model=FLORENCE_MODEL, processor=FLORENCE_PROCESSOR, device=DEVICE,
+                image=image_input, task=FLORENCE_DETAILED_CAPTION_TASK
+            )
+            caption_to_use = result_caption_task[FLORENCE_DETAILED_CAPTION_TASK]
+            print(f"Florence2SAM2: Generated caption: {caption_to_use}")
+        else:
+            print(f"Florence2SAM2: Grounding with provided caption: {caption_to_use}")
         
-        # 从florence2结果中提取对象名称
-        object_names = []
-        if FLORENCE_CAPTION_TO_PHRASE_GROUNDING_TASK in result:
-            grounding_result = result[FLORENCE_CAPTION_TO_PHRASE_GROUNDING_TASK]
-            if 'labels' in grounding_result:
-                object_names = grounding_result['labels']
-            elif len(detections) > 0:
-                # 如果没有labels，从caption中提取短语作为备选
-                words = caption.split()
-                object_names = words[:len(detections)]  # 简单处理，取前几个词作为标签
+        # 使用描述进行区域定位
+        _, result_grounding_task = run_florence_inference(
+            model=FLORENCE_MODEL, processor=FLORENCE_PROCESSOR, device=DEVICE,
+            image=image_input, task=FLORENCE_CAPTION_TO_PHRASE_GROUNDING_TASK, text=caption_to_use
+        )
+        final_detections = sv.Detections.from_lmm(
+            lmm=sv.LMM.FLORENCE_2, result=result_grounding_task, resolution_wh=image_input.size
+        )
+        # 对检测到的区域应用SAM进行分割
+        final_detections = run_sam_inference(SAM_IMAGE_MODEL, image_input, final_detections)
         
-        return annotate_image(image_input, detections), detections.mask, detections, object_names
+        # 提取对象名称
+        final_object_names = []
+        if FLORENCE_CAPTION_TO_PHRASE_GROUNDING_TASK in result_grounding_task:
+            grounding_result = result_grounding_task[FLORENCE_CAPTION_TO_PHRASE_GROUNDING_TASK]
+            if 'labels' in grounding_result and grounding_result['labels']:
+                final_object_names = grounding_result['labels'][:len(final_detections)]
+            elif len(final_detections) > 0:
+                # 如果没有标签，尝试从描述分词得到名称
+                words = caption_to_use.split()
+                final_object_names = words[:len(final_detections)]
+        
+        # 确保名称列表与检测结果数量匹配
+        while len(final_object_names) < len(final_detections):
+            final_object_names.append(f"detected_object_{len(final_object_names) + 1}")
+    
+    else:
+        # 不支持的模式
+        print(f"Florence2SAM2: Unsupported mode: {mode_dropdown}")
+        return None, None, None, []
+    
+    # 准备返回值
+    if len(final_detections) == 0:
+        return annotate_image(image_input, sv.Detections.empty()), np.array([]), sv.Detections.empty(), []
+        
+    # 防止边界情况，确保名称列表长度和检测结果匹配
+    if len(final_object_names) != len(final_detections):
+        final_object_names = final_object_names[:len(final_detections)]
+        while len(final_object_names) < len(final_detections):
+            final_object_names.append(f"object_{len(final_object_names) + 1}")
+    
+    annotated_img = annotate_image(image_input, final_detections)
+    mask_array = final_detections.mask if final_detections.mask is not None else np.array([])
+    
+    return annotated_img, mask_array, final_detections, final_object_names
 
 
 # @spaces.GPU(duration=300)

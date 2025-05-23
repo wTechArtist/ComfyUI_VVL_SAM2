@@ -65,6 +65,7 @@ class F2S2GenerateMask:
             },
             "optional": {
                 "keep_model_loaded": ("BOOLEAN", {"default": False}),
+                "external_caption": ("STRING", {"multiline": True, "default": ""}),
             }
         }
 
@@ -75,33 +76,40 @@ class F2S2GenerateMask:
     # 指示第二个输出 (object_masks) 为列表
     OUTPUT_IS_LIST = (False, True, False, False)
 
-    def _process_image(self, sam2_model: str, device: str, image: torch.Tensor, prompt: str = None, keep_model_loaded: bool = False):
+    def _process_image(self, sam2_model: str, device: str, image: torch.Tensor, prompt: str = None, keep_model_loaded: bool = False, external_caption: str = ""):
         torch_device = torch.device(device)
-        prompt = prompt.strip() if prompt else ""
+        prompt_clean = prompt.strip() if prompt else ""
+        external_caption_clean = external_caption.strip() if external_caption else ""
+        
         annotated_images, object_masks_list, masked_images, detection_jsons = [], [], [], []
-        # Convert image from tensor to PIL
-        # the image has an extra batch dimension, despite the variable name
-        for i, img in enumerate(image):
-            img = tensor2pil(img).convert("RGB")
-            keep_model_loaded = keep_model_loaded if i == (image.size(0) - 1) else True
-            annotated_image, _, object_masks_pil, masked_image, detection_json = process_image(torch_device, sam2_model, img, prompt, keep_model_loaded)
+        
+        for i, img_tensor in enumerate(image):
+            img_pil = tensor2pil(img_tensor).convert("RGB")
+            current_keep_model_loaded = keep_model_loaded if i == (image.size(0) - 1) else True
+            
+            annotated_image, _, object_masks_pil, masked_image, detection_json_data = process_image(
+                torch_device, 
+                sam2_model, 
+                img_pil,
+                prompt_clean, 
+                current_keep_model_loaded, 
+                external_caption_clean
+            )
             annotated_images.append(pil2tensor(annotated_image))
-            if len(object_masks_pil) > 0:
+            if object_masks_pil and len(object_masks_pil) > 0:
                 object_masks_list.extend([pil2tensor(m) for m in object_masks_pil])
             masked_images.append(pil2tensor(masked_image))
             
-            # 将detection_json转换为JSON字符串，自定义格式化bbox_2d为一行
-            json_str = json.dumps(detection_json, ensure_ascii=False, indent=2)
-            # 使用正则表达式将bbox_2d数组格式化为一行
+            json_str = json.dumps(detection_json_data, ensure_ascii=False, indent=2)
             json_str = re.sub(r'"bbox_2d":\s*\[\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\s*\]', 
                              r'"bbox_2d": [\1,\2,\3,\4]', json_str)
             detection_jsons.append(json_str)
             
-        annotated_images = torch.stack(annotated_images)
-        masked_images = torch.stack(masked_images)
-        # 对于批处理，只返回第一个图像的JSON信息，或者可以合并所有图像的信息
-        final_detection_json = detection_jsons[0] if detection_jsons else "{}"
-        return (annotated_images, object_masks_list, masked_images, final_detection_json)
+        annotated_images_stacked = torch.stack(annotated_images) if annotated_images else torch.empty(0)
+        masked_images_stacked = torch.stack(masked_images) if masked_images else torch.empty(0)
+        
+        final_detection_json_str = detection_jsons[0] if detection_jsons else "{}"
+        return (annotated_images_stacked, object_masks_list, masked_images_stacked, final_detection_json_str)
 
 
 NODE_CLASS_MAPPINGS = {
