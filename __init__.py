@@ -3,6 +3,7 @@ from PIL import Image
 import numpy as np
 import os
 import json
+import re
 
 try:
     from app import process_image
@@ -89,8 +90,12 @@ class F2S2GenerateMask:
                 object_masks_list.extend([pil2tensor(m) for m in object_masks_pil])
             masked_images.append(pil2tensor(masked_image))
             
-            # 将detection_json转换为JSON字符串
-            detection_jsons.append(json.dumps(detection_json, ensure_ascii=False, indent=2))
+            # 将detection_json转换为JSON字符串，自定义格式化bbox_2d为一行
+            json_str = json.dumps(detection_json, ensure_ascii=False, indent=2)
+            # 使用正则表达式将bbox_2d数组格式化为一行
+            json_str = re.sub(r'"bbox_2d":\s*\[\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\s*\]', 
+                             r'"bbox_2d": [\1,\2,\3,\4]', json_str)
+            detection_jsons.append(json_str)
             
         annotated_images = torch.stack(annotated_images)
         masked_images = torch.stack(masked_images)
