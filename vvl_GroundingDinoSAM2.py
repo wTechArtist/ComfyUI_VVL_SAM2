@@ -184,6 +184,75 @@ def annotate_image(image, detections):
     output_image = LABEL_ANNOTATOR.annotate(output_image, detections)
     return output_image
 
+def calculate_iou(box1, box2):
+    """计算两个边界框的IoU (Intersection over Union)"""
+    # box格式: [x1, y1, x2, y2]
+    x1_inter = max(box1[0], box2[0])
+    y1_inter = max(box1[1], box2[1])
+    x2_inter = min(box1[2], box2[2])
+    y2_inter = min(box1[3], box2[3])
+    
+    # 计算交集面积
+    if x2_inter <= x1_inter or y2_inter <= y1_inter:
+        return 0.0
+    
+    inter_area = (x2_inter - x1_inter) * (y2_inter - y1_inter)
+    
+    # 计算并集面积
+    box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
+    box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    union_area = box1_area + box2_area - inter_area
+    
+    if union_area <= 0:
+        return 0.0
+    
+    return inter_area / union_area
+
+def remove_duplicate_boxes(boxes, object_names, iou_threshold=0.5):
+    """使用NMS算法去除重复的边界框"""
+    if boxes.shape[0] == 0:
+        return boxes, object_names
+    
+    # 计算每个框的面积
+    areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+    
+    # 按面积排序（保留较大的框）
+    order = torch.argsort(areas, descending=True)
+    
+    keep_indices = []
+    remaining = order.tolist()
+    
+    while remaining:
+        # 取出当前最大面积的框
+        current_idx = remaining[0]
+        keep_indices.append(current_idx)
+        remaining.remove(current_idx)
+        
+        if not remaining:
+            break
+        
+        # 计算当前框与其余框的IoU
+        current_box = boxes[current_idx]
+        to_remove = []
+        
+        for other_idx in remaining:
+            other_box = boxes[other_idx]
+            iou = calculate_iou(current_box, other_box)
+            
+            if iou > iou_threshold:
+                to_remove.append(other_idx)
+        
+        # 移除重叠的框
+        for idx in to_remove:
+            remaining.remove(idx)
+    
+    # 返回去重后的boxes和对应的object_names
+    keep_indices = sorted(keep_indices)
+    filtered_boxes = boxes[keep_indices]
+    filtered_object_names = [object_names[i] for i in keep_indices] if object_names else []
+    
+    return filtered_boxes, filtered_object_names
+
 def sam2_segment(sam_model, image, boxes):
     """SAM2 segmentation function adapted for SAM2"""
     if boxes.shape[0] == 0:
@@ -257,6 +326,7 @@ class VVL_GroundingDinoSAM2:
                 "image": ("IMAGE",),
                 "prompt": ("STRING", {"default": ""}),
                 "threshold": ("FLOAT", {"default": 0.3, "min": 0, "max": 1.0, "step": 0.01}),
+                "iou_threshold": ("FLOAT", {"default": 0.5, "min": 0, "max": 1.0, "step": 0.01}),
             },
             "optional": {
                 "external_caption": ("STRING", {"multiline": True, "default": ""}),
@@ -271,7 +341,7 @@ class VVL_GroundingDinoSAM2:
     OUTPUT_IS_LIST = (False, True, False, False)
 
     def _process_image(self, sam2_model: dict, grounding_dino_model: str, image: torch.Tensor, 
-                      prompt: str = "", threshold: float = 0.3, external_caption: str = "", 
+                      prompt: str = "", threshold: float = 0.3, iou_threshold: float = 0.5, external_caption: str = "", 
                       load_florence2: bool = True):
         
         # 从SAM2模型字典中获取模型和设备信息
@@ -372,6 +442,15 @@ class VVL_GroundingDinoSAM2:
             print(f"VVL_GroundingDinoSAM2: Image {i} - Total boxes found for SAM2 input: {boxes.shape[0]}")
             if boxes.shape[0] > 0:
                 print(f"VVL_GroundingDinoSAM2: Image {i} - Corresponding object names: {object_names}")
+
+            # 应用边界框去重逻辑，避免重复分割同一个对象
+            if boxes.shape[0] > 0:
+                boxes_before_dedup = boxes.shape[0]
+                boxes, object_names = remove_duplicate_boxes(boxes, object_names, iou_threshold)
+                boxes_after_dedup = boxes.shape[0]
+                if boxes_before_dedup != boxes_after_dedup:
+                    print(f"VVL_GroundingDinoSAM2: Image {i} - Removed {boxes_before_dedup - boxes_after_dedup} duplicate boxes (IoU threshold: {iou_threshold})")
+                    print(f"VVL_GroundingDinoSAM2: Image {i} - Final boxes for SAM2: {boxes_after_dedup}")
 
             if boxes.shape[0] == 0:
                 print("VVL_GroundingDinoSAM2: No objects detected.")
