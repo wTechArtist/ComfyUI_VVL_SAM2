@@ -12,6 +12,16 @@ except ImportError:
     from .app import process_image
     from .utils.sam import model_to_config_map as sam_model_to_config_map
 
+# Import the new GroundingDINO + SAM2 node
+try:
+    from vvl_GroundingDinoSAM2 import NODE_CLASS_MAPPINGS as VVL_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as VVL_DISPLAY_MAPPINGS
+except ImportError:
+    try:
+        from .vvl_GroundingDinoSAM2 import NODE_CLASS_MAPPINGS as VVL_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as VVL_DISPLAY_MAPPINGS
+    except ImportError:
+        print("Warning: Could not import VVL_GroundingDinoSAM2 node")
+        VVL_NODE_MAPPINGS = {}
+        VVL_DISPLAY_MAPPINGS = {}
 
 # Format conversion helpers adapted from LayerStyle -- but LayerStyle has them
 # wrong: this is not the place to squeeze/unsqueeze.
@@ -53,6 +63,11 @@ class F2S2GenerateMask:
 
     @classmethod
     def INPUT_TYPES(cls):
+        try:
+            from .utils.sam import model_to_config_map as sam_model_to_config_map
+        except ImportError:
+            from utils.sam import model_to_config_map as sam_model_to_config_map
+        
         model_list = list(sam_model_to_config_map.keys())
         model_list.sort()
         device_list = ["cuda", "cpu"]
@@ -112,11 +127,22 @@ class F2S2GenerateMask:
         return (annotated_images_stacked, object_masks_list, masked_images_stacked, final_detection_json_str)
 
 
+# Combine node mappings from both the original Florence2SAM2 and the new GroundingDINO+SAM2
 NODE_CLASS_MAPPINGS = {
-    "WWL_Florence2SAM2": F2S2GenerateMask
+    "VVL_Florence2SAM2": F2S2GenerateMask
 }
 
-__all__ = ["NODE_CLASS_MAPPINGS"]
+# Add the VVL GroundingDINO + SAM2 node if available
+NODE_CLASS_MAPPINGS.update(VVL_NODE_MAPPINGS)
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "VVL_Florence2SAM2": "VVL Florence2 + SAM2"
+}
+
+# Add display name mappings for VVL nodes
+NODE_DISPLAY_NAME_MAPPINGS.update(VVL_DISPLAY_MAPPINGS)
+
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
 
 if __name__ == "__main__":
     # detect which parameters are filenames -- those are images

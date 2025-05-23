@@ -1,0 +1,865 @@
+{
+  "id": "368724e4-65d8-4809-95da-3619ce2aa772",
+  "revision": 0,
+  "last_node_id": 39,
+  "last_link_id": 55,
+  "nodes": [
+    {
+      "id": 13,
+      "type": "easy showAnything",
+      "pos": [
+        982.6444091796875,
+        918.285888671875
+      ],
+      "size": [
+        341.8434143066406,
+        331.2540283203125
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "anything",
+          "shape": 7,
+          "type": "*",
+          "link": 12
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "*",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-easy-use",
+        "ver": "1.3.0",
+        "Node name for S&R": "easy showAnything"
+      },
+      "widgets_values": [
+        "{\n  \"image_width\": 2048,\n  \"image_height\": 1152,\n  \"objects\": [\n    {\n      \"name\": \"digital art\",\n      \"bbox_2d\": [1,0,2044,1150]\n    },\n    {\n      \"name\": \"landscape\",\n      \"bbox_2d\": [1,0,2042,1150]\n    },\n    {\n      \"name\": \"river\",\n      \"bbox_2d\": [1,668,2044,1150]\n    },\n    {\n      \"name\": \"blue water\",\n      \"bbox_2d\": [1,668,2042,1150]\n    },\n    {\n      \"name\": \"clear sky\",\n      \"bbox_2d\": [1,0,1870,657]\n    },\n    {\n      \"name\": \"white clouds\",\n      \"bbox_2d\": [889,37,1547,318]\n    },\n    {\n      \"name\": \"white clouds\",\n      \"bbox_2d\": [240,222,416,370]\n    },\n    {\n      \"name\": \"white clouds\",\n      \"bbox_2d\": [754,330,939,426]\n    },\n    {\n      \"name\": \"mountains\",\n      \"bbox_2d\": [1,54,926,736]\n    },\n    {\n      \"name\": \"palm trees\",\n      \"bbox_2d\": [1616,0,2044,815]\n    },\n    {\n      \"name\": \"palm trees\",\n      \"bbox_2d\": [1233,398,1428,735]\n    },\n    {\n      \"name\": \"traditional Chinese building\",\n      \"bbox_2d\": [1442,270,1985,748]\n    },\n    {\n      \"name\": \"red building\",\n      \"bbox_2d\": [1442,271,1985,747]\n    },\n    {\n      \"name\": \"black roof\",\n      \"bbox_2d\": [1467,270,1932,464]\n    },\n    {\n      \"name\": \"wooden boat\",\n      \"bbox_2d\": [171,847,728,1001]\n    },\n    {\n      \"name\": \"man\",\n      \"bbox_2d\": [351,768,470,950]\n    },\n    {\n      \"name\": \"man\",\n      \"bbox_2d\": [529,753,601,899]\n    },\n    {\n      \"name\": \"white shirt\",\n      \"bbox_2d\": [353,801,424,883]\n    },\n    {\n      \"name\": \"black pants\",\n      \"bbox_2d\": [355,862,422,948]\n    },\n    {\n      \"name\": \"hat\",\n      \"bbox_2d\": [367,767,422,804]\n    },\n    {\n      \"name\": \"hat\",\n      \"bbox_2d\": [547,752,588,783]\n    },\n    {\n      \"name\": \"paddle\",\n      \"bbox_2d\": [209,832,472,933]\n    },\n    {\n      \"name\": \"lotus flowers\",\n      \"bbox_2d\": [52,1023,185,1103]\n    },\n    {\n      \"name\": \"lotus flowers\",\n      \"bbox_2d\": [1833,970,1934,1031]\n    },\n    {\n      \"name\": \"lotus flowers\",\n      \"bbox_2d\": [1969,965,2044,1022]\n    },\n    {\n      \"name\": \"lotus flowers\",\n      \"bbox_2d\": [1526,888,1606,938]\n    },\n    {\n      \"name\": \"lotus flowers\",\n      \"bbox_2d\": [1868,908,1946,953]\n    },\n    {\n      \"name\": \"lotus flowers\",\n      \"bbox_2d\": [29,828,89,870]\n    },\n    {\n      \"name\": \"lotus flowers\",\n      \"bbox_2d\": [1489,853,1545,895]\n    },\n    {\n      \"name\": \"geometric style\",\n      \"bbox_2d\": [414,139,816,598]\n    },\n    {\n      \"name\": \"polygon shapes\",\n      \"bbox_2d\": [414,139,814,598]\n    },\n    {\n      \"name\": \"Korean text\",\n      \"bbox_2d\": [1815,1035,1993,1100]\n    }\n  ]\n}"
+      ]
+    },
+    {
+      "id": 26,
+      "type": "LayerUtility: LoadJoyCaptionBeta1Model",
+      "pos": [
+        -528.4501342773438,
+        894.9827880859375
+      ],
+      "size": [
+        454.7535095214844,
+        106
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "joycaption_beta1_model",
+          "type": "JOYCAPTIONBETA1_MODEL",
+          "links": [
+            30
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI_LayerStyle_Advance",
+        "ver": "0f9184100e626e3202568a7cf890b3b92685a168",
+        "Node name for S&R": "LayerUtility: LoadJoyCaptionBeta1Model"
+      },
+      "widgets_values": [
+        "fancyfeast/llama-joycaption-beta-one-hf-llava",
+        "nf4",
+        "cuda"
+      ],
+      "color": "rgba(38, 73, 116, 0.7)"
+    },
+    {
+      "id": 27,
+      "type": "easy showAnything",
+      "pos": [
+        532.3695068359375,
+        878.5379638671875
+      ],
+      "size": [
+        341.8434143066406,
+        331.2540283203125
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "anything",
+          "shape": 7,
+          "type": "*",
+          "link": 28
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "*",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-easy-use",
+        "ver": "1.3.0",
+        "Node name for S&R": "easy showAnything"
+      },
+      "widgets_values": [
+        "digital art, landscape, river, blue water, clear sky, white clouds, mountains, green foliage, palm trees, traditional Chinese building, red building, black roof, wooden boat, man, white shirt, black pants, hat, paddle, lily pads, lotus flowers, geometric style, polygon shapes, Korean text, daytime, reflection, serene, peaceful, scenic, nature, travel, architecture, cultural, Asian, calm, picturesque, tranquil, traditional, outdoor, summer, perspective, depth, harmony, balance, beauty, tranquility, scenic view"
+      ]
+    },
+    {
+      "id": 25,
+      "type": "LayerUtility: JoyCaptionBeta1",
+      "pos": [
+        24.513961791992188,
+        875.5789794921875
+      ],
+      "size": [
+        400,
+        272
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 26
+        },
+        {
+          "name": "joycaption_beta1_model",
+          "type": "JOYCAPTIONBETA1_MODEL",
+          "link": 30
+        },
+        {
+          "name": "extra_options",
+          "shape": 7,
+          "type": "JoyCaption2ExtraOption",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text",
+          "shape": 6,
+          "type": "STRING",
+          "links": [
+            28,
+            31
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI_LayerStyle_Advance",
+        "ver": "0f9184100e626e3202568a7cf890b3b92685a168",
+        "Node name for S&R": "LayerUtility: JoyCaptionBeta1"
+      },
+      "widgets_values": [
+        "Booru-like tag list",
+        "any",
+        2048,
+        0.9,
+        0,
+        0.6,
+        "Write a list of Booru-like tags for this image."
+      ],
+      "color": "rgba(38, 73, 116, 0.7)"
+    },
+    {
+      "id": 10,
+      "type": "WWL_Florence2SAM2",
+      "pos": [
+        458.06634521484375,
+        529.3693237304688
+      ],
+      "size": [
+        269.2303771972656,
+        244
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 10
+        },
+        {
+          "name": "external_caption",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "external_caption"
+          },
+          "link": 31
+        }
+      ],
+      "outputs": [
+        {
+          "name": "annotated_image",
+          "type": "IMAGE",
+          "links": [
+            11
+          ]
+        },
+        {
+          "name": "object_masks",
+          "shape": 6,
+          "type": "MASK",
+          "links": [
+            24,
+            36
+          ]
+        },
+        {
+          "name": "masked_image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "detection_json",
+          "type": "STRING",
+          "links": [
+            12
+          ]
+        }
+      ],
+      "properties": {
+        "aux_id": "wTechArtist/ComfyUI_WWL_Florence2SAM2",
+        "ver": "47af371977512afab3e0c335f621403897fe91bb",
+        "Node name for S&R": "WWL_Florence2SAM2"
+      },
+      "widgets_values": [
+        "sam2_hiera_small.pt",
+        "cuda",
+        "",
+        false,
+        ""
+      ]
+    },
+    {
+      "id": 38,
+      "type": "MaskPreview+",
+      "pos": [
+        1725.3223876953125,
+        962.4754028320312
+      ],
+      "size": [
+        148.38925170898438,
+        246.00003051757812
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mask",
+          "type": "MASK",
+          "link": 47
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfyui_essentials",
+        "ver": "1.1.0",
+        "Node name for S&R": "MaskPreview+"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 34,
+      "type": "PreviewImage",
+      "pos": [
+        2011.549560546875,
+        1047.5130615234375
+      ],
+      "size": [
+        140,
+        246
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 39
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.34",
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 23,
+      "type": "MaskPreview+",
+      "pos": [
+        1471.1016845703125,
+        1043.6080322265625
+      ],
+      "size": [
+        148.38925170898438,
+        246.00003051757812
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mask",
+          "type": "MASK",
+          "link": 24
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfyui_essentials",
+        "ver": "1.1.0",
+        "Node name for S&R": "MaskPreview+"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 12,
+      "type": "PreviewImage",
+      "pos": [
+        859.5001220703125,
+        543.702880859375
+      ],
+      "size": [
+        364.5657043457031,
+        258
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 11
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.34",
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 14,
+      "type": "vvl_BBoxInput",
+      "pos": [
+        605.1229248046875,
+        1295.4752197265625
+      ],
+      "size": [
+        400,
+        200
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "bboxes",
+          "type": "BBOXES",
+          "links": []
+        }
+      ],
+      "properties": {
+        "aux_id": "wTechArtist/ComfyUI_vvl_BBOX",
+        "ver": "bdc93417904e72f5ad1665b80bb4904a5c305b27",
+        "Node name for S&R": "vvl_BBoxInput"
+      },
+      "widgets_values": [
+        "1446,271,1987,749",
+        1
+      ]
+    },
+    {
+      "id": 32,
+      "type": "LayerUtility: CropByMask V2",
+      "pos": [
+        1305.339111328125,
+        495.7713928222656
+      ],
+      "size": [
+        278.0650329589844,
+        262
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 37
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "link": 36
+        },
+        {
+          "name": "crop_box",
+          "shape": 7,
+          "type": "BOX",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "croped_image",
+          "type": "IMAGE",
+          "links": [
+            39,
+            50,
+            54
+          ]
+        },
+        {
+          "name": "croped_mask",
+          "type": "MASK",
+          "links": [
+            47,
+            49
+          ]
+        },
+        {
+          "name": "crop_box",
+          "type": "BOX",
+          "links": null
+        },
+        {
+          "name": "box_preview",
+          "type": "IMAGE",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui_layerstyle",
+        "ver": "1.0.90",
+        "Node name for S&R": "LayerUtility: CropByMask V2"
+      },
+      "widgets_values": [
+        false,
+        "mask_area",
+        0,
+        0,
+        0,
+        0,
+        "8"
+      ],
+      "color": "rgba(38, 73, 116, 0.7)"
+    },
+    {
+      "id": 37,
+      "type": "easy imageSize",
+      "pos": [
+        1606.490234375,
+        492.8125305175781
+      ],
+      "size": [
+        140,
+        96.00006103515625
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 50
+        }
+      ],
+      "outputs": [
+        {
+          "name": "width_int",
+          "type": "INT",
+          "links": [
+            41
+          ]
+        },
+        {
+          "name": "height_int",
+          "type": "INT",
+          "links": [
+            42
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-easy-use",
+        "ver": "1.3.0",
+        "Node name for S&R": "easy imageSize"
+      },
+      "widgets_values": [
+        "Width: 2048 , Height: 1152Width: 2048 , Height: 1152Width: 2048 , Height: 472Width: 2048 , Height: 472Width: 1816 , Height: 632Width: 648 , Height: 264Width: 168 , Height: 136Width: 176 , Height: 80Width: 920 , Height: 672Width: 424 , Height: 816Width: 184 , Height: 328Width: 528 , Height: 480Width: 528 , Height: 472Width: 448 , Height: 184Width: 552 , Height: 136Width: 112 , Height: 168Width: 56 , Height: 136Width: 64 , Height: 72Width: 48 , Height: 80Width: 40 , Height: 32Width: 32 , Height: 24Width: 248 , Height: 88Width: 120 , Height: 64Width: 88 , Height: 48Width: 72 , Height: 48Width: 80 , Height: 48Width: 72 , Height: 48Width: 80 , Height: 40Width: 56 , Height: 32Width: 392 , Height: 432Width: 392 , Height: 432Width: 160 , Height: 48"
+      ]
+    },
+    {
+      "id": 36,
+      "type": "EmptyImage",
+      "pos": [
+        1771.7022705078125,
+        464.8382873535156
+      ],
+      "size": [
+        270,
+        130
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": 41
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": 42
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            53
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.34",
+        "Node name for S&R": "EmptyImage"
+      },
+      "widgets_values": [
+        512,
+        512,
+        1,
+        0
+      ]
+    },
+    {
+      "id": 35,
+      "type": "ImageCompositeMasked",
+      "pos": [
+        2068.824462890625,
+        464.84625244140625
+      ],
+      "size": [
+        270,
+        146
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "destination",
+          "type": "IMAGE",
+          "link": 53
+        },
+        {
+          "name": "source",
+          "type": "IMAGE",
+          "link": 54
+        },
+        {
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": 49
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            52
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.34",
+        "Node name for S&R": "ImageCompositeMasked"
+      },
+      "widgets_values": [
+        0,
+        0,
+        false
+      ]
+    },
+    {
+      "id": 39,
+      "type": "PreviewImage",
+      "pos": [
+        2373.609619140625,
+        460.42205810546875
+      ],
+      "size": [
+        140,
+        246.00003051757812
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 52
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.34",
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 11,
+      "type": "LoadImage",
+      "pos": [
+        -360.6982421875,
+        514.8984985351562
+      ],
+      "size": [
+        274.080078125,
+        314.0000305175781
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            10,
+            26,
+            37
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.34",
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "根据图片生成类似图片 (3).png",
+        "image"
+      ]
+    }
+  ],
+  "links": [
+    [
+      10,
+      11,
+      0,
+      10,
+      0,
+      "IMAGE"
+    ],
+    [
+      11,
+      10,
+      0,
+      12,
+      0,
+      "IMAGE"
+    ],
+    [
+      12,
+      10,
+      3,
+      13,
+      0,
+      "*"
+    ],
+    [
+      24,
+      10,
+      1,
+      23,
+      0,
+      "MASK"
+    ],
+    [
+      26,
+      11,
+      0,
+      25,
+      0,
+      "IMAGE"
+    ],
+    [
+      28,
+      25,
+      0,
+      27,
+      0,
+      "*"
+    ],
+    [
+      30,
+      26,
+      0,
+      25,
+      1,
+      "JOYCAPTIONBETA1_MODEL"
+    ],
+    [
+      31,
+      25,
+      0,
+      10,
+      1,
+      "STRING"
+    ],
+    [
+      36,
+      10,
+      1,
+      32,
+      1,
+      "MASK"
+    ],
+    [
+      37,
+      11,
+      0,
+      32,
+      0,
+      "IMAGE"
+    ],
+    [
+      39,
+      32,
+      0,
+      34,
+      0,
+      "IMAGE"
+    ],
+    [
+      41,
+      37,
+      0,
+      36,
+      0,
+      "INT"
+    ],
+    [
+      42,
+      37,
+      1,
+      36,
+      1,
+      "INT"
+    ],
+    [
+      47,
+      32,
+      1,
+      38,
+      0,
+      "MASK"
+    ],
+    [
+      49,
+      32,
+      1,
+      35,
+      2,
+      "MASK"
+    ],
+    [
+      50,
+      32,
+      0,
+      37,
+      0,
+      "IMAGE"
+    ],
+    [
+      52,
+      35,
+      0,
+      39,
+      0,
+      "IMAGE"
+    ],
+    [
+      53,
+      36,
+      0,
+      35,
+      0,
+      "IMAGE"
+    ],
+    [
+      54,
+      32,
+      0,
+      35,
+      1,
+      "IMAGE"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.32349184307607426,
+      "offset": [
+        1769.1525210077127,
+        246.38252291134484
+      ]
+    },
+    "frontendVersion": "1.19.9"
+  },
+  "version": 0.4
+}
