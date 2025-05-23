@@ -222,55 +222,45 @@ def sam2_segment(sam_model, image, boxes):
     
     return output_images, output_masks, detections_with_masks
 
-# Global variables for model management
+# Global variables for GroundingDINO and Florence2 model management
 GROUNDING_DINO_MODEL = None
-SAM2_MODEL = None
 FLORENCE_MODEL = None
 FLORENCE_PROCESSOR = None
-DEVICE = None
+CURRENT_GROUNDING_DINO_MODEL_NAME = None
 
-def lazy_load_models(device: torch.device, grounding_dino_model_name: str, sam2_model_name: str):
-    global GROUNDING_DINO_MODEL, SAM2_MODEL, FLORENCE_MODEL, FLORENCE_PROCESSOR, DEVICE
-    
-    if device != DEVICE:
-        DEVICE = device
+def lazy_load_grounding_dino_florence_models(grounding_dino_model_name: str, load_florence2: bool = True):
+    global GROUNDING_DINO_MODEL, FLORENCE_MODEL, FLORENCE_PROCESSOR, CURRENT_GROUNDING_DINO_MODEL_NAME
     
     # Load GroundingDINO model
-    if GROUNDING_DINO_MODEL is None:
+    if GROUNDING_DINO_MODEL is None or CURRENT_GROUNDING_DINO_MODEL_NAME != grounding_dino_model_name:
         GROUNDING_DINO_MODEL = load_groundingdino_model(grounding_dino_model_name)
-    
-    # Load SAM2 model
-    if SAM2_MODEL is None:
-        SAM2_MODEL = load_sam_image_model(device=DEVICE, checkpoint=sam2_model_name)
+        CURRENT_GROUNDING_DINO_MODEL_NAME = grounding_dino_model_name
     
     # Load Florence-2 model (for caption generation when needed)
-    if FLORENCE_MODEL is None or FLORENCE_PROCESSOR is None:
+    if load_florence2 and (FLORENCE_MODEL is None or FLORENCE_PROCESSOR is None):
+        device = comfy.model_management.get_torch_device()
         try:
             from utils.florence import load_florence_model
         except ImportError:
             from .utils.florence import load_florence_model
-        FLORENCE_MODEL, FLORENCE_PROCESSOR = load_florence_model(device=DEVICE)
+        FLORENCE_MODEL, FLORENCE_PROCESSOR = load_florence_model(device=device)
 
 class VVL_GroundingDinoSAM2:
     @classmethod
     def INPUT_TYPES(cls):
         grounding_dino_models = list(groundingdino_model_list.keys())
-        sam2_models = list(sam_model_to_config_map.keys())
-        sam2_models.sort()
-        device_list = ["cuda", "cpu"]
         
         return {
             "required": {
+                "sam2_model": ("VVL_SAM2_MODEL",),
                 "grounding_dino_model": (grounding_dino_models, {"default": grounding_dino_models[0]}),
-                "sam2_model": (sam2_models, {"default": "sam2_hiera_small.pt"}),
-                "device": (device_list, {"default": "cuda"}),
                 "image": ("IMAGE",),
                 "prompt": ("STRING", {"default": ""}),
                 "threshold": ("FLOAT", {"default": 0.3, "min": 0, "max": 1.0, "step": 0.01}),
             },
             "optional": {
                 "external_caption": ("STRING", {"multiline": True, "default": ""}),
-                "keep_model_loaded": ("BOOLEAN", {"default": False}),
+                "load_florence2": ("BOOLEAN", {"default": True}),
             }
         }
 
@@ -280,16 +270,19 @@ class VVL_GroundingDinoSAM2:
     CATEGORY = "💃rDancer"
     OUTPUT_IS_LIST = (False, True, False, False)
 
-    def _process_image(self, grounding_dino_model: str, sam2_model: str, device: str, image: torch.Tensor, 
+    def _process_image(self, sam2_model: dict, grounding_dino_model: str, image: torch.Tensor, 
                       prompt: str = "", threshold: float = 0.3, external_caption: str = "", 
-                      keep_model_loaded: bool = False):
+                      load_florence2: bool = True):
         
-        torch_device = torch.device(device)
+        # 从SAM2模型字典中获取模型和设备信息
+        sam2_model_instance = sam2_model['model']
+        device = sam2_model['device']
+        
+        # 加载GroundingDINO和Florence2模型
+        lazy_load_grounding_dino_florence_models(grounding_dino_model, load_florence2)
+        
         prompt_clean = prompt.strip() if prompt else ""
         external_caption_clean = external_caption.strip() if external_caption else ""
-        
-        # Load models
-        lazy_load_models(torch_device, grounding_dino_model, sam2_model)
         
         annotated_images, object_masks_list, masked_images, detection_jsons = [], [], [], []
         
@@ -316,19 +309,24 @@ class VVL_GroundingDinoSAM2:
                 
             else:
                 # Mode 3: Generate caption with Florence-2, then use for grounding
-                print(f"VVL_GroundingDinoSAM2: Image {i} - Generating caption with Florence-2.")
-                _, result_caption = run_florence_inference(
-                    model=FLORENCE_MODEL,
-                    processor=FLORENCE_PROCESSOR,
-                    device=DEVICE, # Use the global DEVICE for Florence model
-                    image=img_pil,
-                    task=FLORENCE_DETAILED_CAPTION_TASK
-                )
-                generated_caption = result_caption[FLORENCE_DETAILED_CAPTION_TASK]
-                current_detection_phrases = [c.strip() for c in generated_caption.split(',') if c.strip()]
-                if not current_detection_phrases and generated_caption:
-                    current_detection_phrases = [generated_caption.strip()]
-                detection_mode_info = f"Florence-2 generated caption list: {current_detection_phrases}"
+                if load_florence2 and FLORENCE_MODEL is not None and FLORENCE_PROCESSOR is not None:
+                    print(f"VVL_GroundingDinoSAM2: Image {i} - Generating caption with Florence-2.")
+                    _, result_caption = run_florence_inference(
+                        model=FLORENCE_MODEL,
+                        processor=FLORENCE_PROCESSOR,
+                        device=device,
+                        image=img_pil,
+                        task=FLORENCE_DETAILED_CAPTION_TASK
+                    )
+                    generated_caption = result_caption[FLORENCE_DETAILED_CAPTION_TASK]
+                    current_detection_phrases = [c.strip() for c in generated_caption.split(',') if c.strip()]
+                    if not current_detection_phrases and generated_caption:
+                        current_detection_phrases = [generated_caption.strip()]
+                    detection_mode_info = f"Florence-2 generated caption list: {current_detection_phrases}"
+                else:
+                    print("VVL_GroundingDinoSAM2: Florence-2 model not available, skipping caption generation.")
+                    current_detection_phrases = []
+                    detection_mode_info = "No detection phrases available"
 
             print(f"VVL_GroundingDinoSAM2: Image {i} - Mode: {detection_mode_info}")
 
@@ -340,14 +338,10 @@ class VVL_GroundingDinoSAM2:
                 boxes = torch.zeros((0,4))
             else:
                 for phrase_idx, phrase in enumerate(current_detection_phrases):
-                    # print(f"VVL_GroundingDinoSAM2: Image {i}, Phrase {phrase_idx+1}/{len(current_detection_phrases)} - Detecting: '{phrase}' with threshold {threshold}")
                     boxes_single = groundingdino_predict(GROUNDING_DINO_MODEL, img_pil, phrase, threshold)
                     if boxes_single.shape[0] > 0:
                         all_boxes_list.append(boxes_single)
                         object_names.extend([phrase] * boxes_single.shape[0])
-                        # print(f"  - Found {boxes_single.shape[0]} box(es) for '{phrase}'")
-                    # else:
-                        # print(f"  - No boxes for '{phrase}' (threshold={threshold})")
                 
                 if len(all_boxes_list) > 0:
                     boxes = torch.cat(all_boxes_list, dim=0)
@@ -356,28 +350,22 @@ class VVL_GroundingDinoSAM2:
             
             # Fallback logic if no boxes found with initial threshold
             if boxes.shape[0] == 0 and threshold > 0.15 and current_detection_phrases:
-                fallback_thresh = max(0.1, threshold * 0.5) # Lowered minimum fallback
+                fallback_thresh = max(0.1, threshold * 0.5)
                 print(f"VVL_GroundingDinoSAM2: Image {i} - No boxes found with threshold {threshold}. Lowering to {fallback_thresh} and retrying.")
                 
-                original_object_names_count = len(object_names) # Should be 0 here
-                all_boxes_list_fallback = [] # Reset for fallback
+                all_boxes_list_fallback = []
                 object_names_fallback = []
 
                 for phrase_idx, phrase in enumerate(current_detection_phrases):
-                    # print(f"VVL_GroundingDinoSAM2: Image {i}, Fallback Phrase {phrase_idx+1}/{len(current_detection_phrases)} - Detecting: '{phrase}' with threshold {fallback_thresh}")
                     boxes_single_fallback = groundingdino_predict(GROUNDING_DINO_MODEL, img_pil, phrase, fallback_thresh)
                     if boxes_single_fallback.shape[0] > 0:
                         all_boxes_list_fallback.append(boxes_single_fallback)
                         object_names_fallback.extend([phrase] * boxes_single_fallback.shape[0])
-                        # print(f"  - Fallback: Found {boxes_single_fallback.shape[0]} box(es) for '{phrase}'")
-                    # else:
-                        # print(f"  - Fallback: No boxes for '{phrase}' (threshold={fallback_thresh})")
                 
                 if len(all_boxes_list_fallback) > 0:
                     boxes = torch.cat(all_boxes_list_fallback, dim=0)
-                    object_names = object_names_fallback # Replace with fallback names
+                    object_names = object_names_fallback
                 else:
-                    # Ensure object_names is empty if no boxes from fallback either
                     object_names = [] 
                     boxes = torch.zeros((0,4))
 
@@ -398,7 +386,7 @@ class VVL_GroundingDinoSAM2:
                 continue
             
             # Use SAM2 for segmentation
-            output_images, output_masks, detections_with_masks = sam2_segment(SAM2_MODEL, img_pil, boxes)
+            output_images, output_masks, detections_with_masks = sam2_segment(sam2_model_instance, img_pil, boxes)
             
             # 使用supervision库的标注器来标注图像
             if len(object_names) > 0 and detections_with_masks is not None:

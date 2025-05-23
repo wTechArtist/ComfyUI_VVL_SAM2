@@ -23,6 +23,17 @@ except ImportError:
         VVL_NODE_MAPPINGS = {}
         VVL_DISPLAY_MAPPINGS = {}
 
+# Import the SAM2 loader node
+try:
+    from vvl_model_loader import NODE_CLASS_MAPPINGS as LOADER_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as LOADER_DISPLAY_MAPPINGS
+except ImportError:
+    try:
+        from .vvl_model_loader import NODE_CLASS_MAPPINGS as LOADER_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as LOADER_DISPLAY_MAPPINGS
+    except ImportError:
+        print("Warning: Could not import VVL_SAM2Loader node")
+        LOADER_NODE_MAPPINGS = {}
+        LOADER_DISPLAY_MAPPINGS = {}
+
 # Format conversion helpers adapted from LayerStyle -- but LayerStyle has them
 # wrong: this is not the place to squeeze/unsqueeze.
 #
@@ -63,23 +74,13 @@ class F2S2GenerateMask:
 
     @classmethod
     def INPUT_TYPES(cls):
-        try:
-            from .utils.sam import model_to_config_map as sam_model_to_config_map
-        except ImportError:
-            from utils.sam import model_to_config_map as sam_model_to_config_map
-        
-        model_list = list(sam_model_to_config_map.keys())
-        model_list.sort()
-        device_list = ["cuda", "cpu"]
         return {
             "required": {
-                "sam2_model": (model_list, {"default": "sam2_hiera_small.pt"}),
-                "device": (device_list,),
+                "sam2_model": ("VVL_SAM2_MODEL",),
                 "image": ("IMAGE",),
                 "prompt": ("STRING", {"default": ""}),
             },
             "optional": {
-                "keep_model_loaded": ("BOOLEAN", {"default": False}),
                 "external_caption": ("STRING", {"multiline": True, "default": ""}),
             }
         }
@@ -91,8 +92,11 @@ class F2S2GenerateMask:
     # 指示第二个输出 (object_masks) 为列表
     OUTPUT_IS_LIST = (False, True, False, False)
 
-    def _process_image(self, sam2_model: str, device: str, image: torch.Tensor, prompt: str = None, keep_model_loaded: bool = False, external_caption: str = ""):
-        torch_device = torch.device(device)
+    def _process_image(self, sam2_model: dict, image: torch.Tensor, prompt: str = "", external_caption: str = ""):
+        # 从SAM2模型字典中获取设备和模型名称信息
+        device = sam2_model['device']
+        model_name = sam2_model['model_name']
+        
         prompt_clean = prompt.strip() if prompt else ""
         external_caption_clean = external_caption.strip() if external_caption else ""
         
@@ -100,14 +104,14 @@ class F2S2GenerateMask:
         
         for i, img_tensor in enumerate(image):
             img_pil = tensor2pil(img_tensor).convert("RGB")
-            current_keep_model_loaded = keep_model_loaded if i == (image.size(0) - 1) else True
             
+            # 调用process_image函数，传递SAM2模型名称和设备
             annotated_image, _, object_masks_pil, masked_image, detection_json_data = process_image(
-                torch_device, 
-                sam2_model, 
+                device, 
+                model_name,  # 传递SAM2模型名称
                 img_pil,
                 prompt_clean, 
-                current_keep_model_loaded, 
+                True,  # keep_model_loaded - 由于模型已经加载，这个参数不再重要
                 external_caption_clean
             )
             annotated_images.append(pil2tensor(annotated_image))
@@ -127,7 +131,7 @@ class F2S2GenerateMask:
         return (annotated_images_stacked, object_masks_list, masked_images_stacked, final_detection_json_str)
 
 
-# Combine node mappings from both the original Florence2SAM2 and the new GroundingDINO+SAM2
+# Combine node mappings from all nodes
 NODE_CLASS_MAPPINGS = {
     "VVL_Florence2SAM2": F2S2GenerateMask
 }
@@ -135,12 +139,18 @@ NODE_CLASS_MAPPINGS = {
 # Add the VVL GroundingDINO + SAM2 node if available
 NODE_CLASS_MAPPINGS.update(VVL_NODE_MAPPINGS)
 
+# Add the VVL SAM2 Loader node if available
+NODE_CLASS_MAPPINGS.update(LOADER_NODE_MAPPINGS)
+
 NODE_DISPLAY_NAME_MAPPINGS = {
     "VVL_Florence2SAM2": "VVL Florence2 + SAM2"
 }
 
 # Add display name mappings for VVL nodes
 NODE_DISPLAY_NAME_MAPPINGS.update(VVL_DISPLAY_MAPPINGS)
+
+# Add display name mappings for loader node
+NODE_DISPLAY_NAME_MAPPINGS.update(LOADER_DISPLAY_MAPPINGS)
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
 
