@@ -79,6 +79,7 @@ class F2S2GenerateMask:
                 "sam2_model": ("VVL_SAM2_MODEL",),
                 "image": ("IMAGE",),
                 "prompt": ("STRING", {"default": ""}),
+                "iou_threshold": ("FLOAT", {"default": 0.5, "min": 0, "max": 1.0, "step": 0.01}),
             },
             "optional": {
                 "external_caption": ("STRING", {"multiline": True, "default": ""}),
@@ -92,7 +93,8 @@ class F2S2GenerateMask:
     # 指示第二个输出 (object_masks) 为列表
     OUTPUT_IS_LIST = (False, True, False, False)
 
-    def _process_image(self, sam2_model: dict, image: torch.Tensor, prompt: str = "", external_caption: str = ""):
+    def _process_image(self, sam2_model: dict, image: torch.Tensor, prompt: str = "", 
+                      iou_threshold: float = 0.5, external_caption: str = ""):
         # 从SAM2模型字典中获取设备和模型名称信息
         device = sam2_model['device']
         model_name = sam2_model['model_name']
@@ -112,7 +114,8 @@ class F2S2GenerateMask:
                 img_pil,
                 prompt_clean, 
                 True,  # keep_model_loaded - 由于模型已经加载，这个参数不再重要
-                external_caption_clean
+                external_caption_clean,
+                iou_threshold  # 传递IoU阈值参数
             )
             annotated_images.append(pil2tensor(annotated_image))
             if object_masks_pil and len(object_masks_pil) > 0:
