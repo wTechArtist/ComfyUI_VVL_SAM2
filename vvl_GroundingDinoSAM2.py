@@ -161,10 +161,33 @@ def groundingdino_predict(dino_model, image, prompt, threshold):
         boxes_filt[i][2:] += boxes_filt[i][:2]
     return boxes_filt
 
+# Color palette and annotators for image annotation
+COLORS = ['#FF1493', '#00BFFF', '#FF6347', '#FFD700', '#32CD32', '#8A2BE2']
+COLOR_PALETTE = sv.ColorPalette.from_hex(COLORS)
+BOX_ANNOTATOR = sv.BoxAnnotator(color=COLOR_PALETTE, color_lookup=sv.ColorLookup.INDEX)
+LABEL_ANNOTATOR = sv.LabelAnnotator(
+    color=COLOR_PALETTE,
+    color_lookup=sv.ColorLookup.INDEX,
+    text_position=sv.Position.CENTER_OF_MASS,
+    text_color=sv.Color.from_hex("#000000"),
+    border_radius=5
+)
+MASK_ANNOTATOR = sv.MaskAnnotator(
+    color=COLOR_PALETTE,
+    color_lookup=sv.ColorLookup.INDEX
+)
+
+def annotate_image(image, detections):
+    output_image = image.copy()
+    output_image = MASK_ANNOTATOR.annotate(output_image, detections)
+    output_image = BOX_ANNOTATOR.annotate(output_image, detections)
+    output_image = LABEL_ANNOTATOR.annotate(output_image, detections)
+    return output_image
+
 def sam2_segment(sam_model, image, boxes):
     """SAM2 segmentation function adapted for SAM2"""
     if boxes.shape[0] == 0:
-        return [], []
+        return [], [], None
     
     # Convert PIL image to numpy
     image_np = np.array(image)
@@ -197,7 +220,7 @@ def sam2_segment(sam_model, image, boxes):
             masked_image_pil = Image.fromarray(image_np_copy)
             output_images.append(pil2tensor(masked_image_pil.convert("RGB")))
     
-    return output_images, output_masks
+    return output_images, output_masks, detections_with_masks
 
 # Global variables for model management
 GROUNDING_DINO_MODEL = None
@@ -375,49 +398,29 @@ class VVL_GroundingDinoSAM2:
                 continue
             
             # Use SAM2 for segmentation
-            output_images, output_masks = sam2_segment(SAM2_MODEL, img_pil, boxes)
+            output_images, output_masks, detections_with_masks = sam2_segment(SAM2_MODEL, img_pil, boxes)
             
-            # Create annotated image with bounding boxes
-            annotated_img = img_pil.copy()
-            draw = ImageDraw.Draw(annotated_img)
-            
-            # Draw bounding boxes and labels
-            for j, bbox in enumerate(boxes):
-                if j < len(object_names):
-                    x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-                    
-                    # Draw rectangle
-                    draw.rectangle([x1, y1, x2, y2], outline=(255, 0, 0), width=3)
-                    
-                    # Draw label
-                    label = object_names[j] if j < len(object_names) else f"object_{j+1}"
-                    
-                    # 处理不同版本PIL的文本绘制
-                    try:
-                        # 尝试使用新版本API
-                        from PIL import ImageFont
-                        font = ImageFont.load_default()
-                        text_bbox = draw.textbbox((x1, y1), label, font=font)
-                        text_width = text_bbox[2] - text_bbox[0]
-                        text_height = text_bbox[3] - text_bbox[1]
-                        
-                        # 绘制文本背景
-                        draw.rectangle([x1, y1, x1 + text_width, y1 + text_height], fill=(255, 0, 0))
-                        
-                        # 绘制文本
-                        draw.text((x1, y1), label, fill=(255, 255, 255), font=font)
-                    except (AttributeError, ImportError):
-                        # 回退到旧版本API
-                        text_width = len(label) * 6  # 估算文本宽度
-                        text_height = 15  # 估算文本高度
-                        
-                        # 绘制文本背景
-                        draw.rectangle([x1, y1, x1 + text_width, y1 + text_height], fill=(255, 0, 0))
-                        
-                        # 绘制文本
-                        draw.text((x1, y1), label, fill=(255, 255, 255))
-            
-            annotated_images.append(pil2tensor(annotated_img))
+            # 使用supervision库的标注器来标注图像
+            if len(object_names) > 0 and detections_with_masks is not None:
+                # 创建标签列表，确保长度与检测结果匹配
+                labels = []
+                for j in range(len(detections_with_masks)):
+                    if j < len(object_names):
+                        labels.append(object_names[j])
+                    else:
+                        labels.append(f"object_{j+1}")
+                
+                # 设置detections的data字典来存储标签
+                if not hasattr(detections_with_masks, 'data') or detections_with_masks.data is None:
+                    detections_with_masks.data = {}
+                detections_with_masks.data['class_name'] = labels
+                
+                # 使用与app.py相同的annotate_image函数
+                annotated_img = annotate_image(img_pil, detections_with_masks)
+                annotated_images.append(pil2tensor(annotated_img))
+            else:
+                # 如果没有检测到对象，则返回原始图像
+                annotated_images.append(pil2tensor(img_pil))
             
             # Add masks to the list
             if output_masks:
