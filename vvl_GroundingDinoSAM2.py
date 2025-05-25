@@ -450,11 +450,11 @@ class VVL_GroundingDinoSAM2:
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE", "STRING",)
-    RETURN_NAMES = ("annotated_image", "object_masks", "masked_image", "detection_json",)
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING",)
+    RETURN_NAMES = ("annotated_image", "object_masks", "detection_json",)
     FUNCTION = "_process_image"
     CATEGORY = "💃rDancer"
-    OUTPUT_IS_LIST = (False, True, False, False)
+    OUTPUT_IS_LIST = (False, True, False)
 
     def _process_image(self, sam2_model: dict, grounding_dino_model: str, image: torch.Tensor, 
                       prompt: str = "", threshold: float = 0.3, iou_threshold: float = 0.5, external_caption: str = "", 
@@ -470,7 +470,7 @@ class VVL_GroundingDinoSAM2:
         prompt_clean = prompt.strip() if prompt else ""
         external_caption_clean = external_caption.strip() if external_caption else ""
         
-        annotated_images, object_masks_list, masked_images, detection_jsons = [], [], [], []
+        annotated_images, object_masks_list, detection_jsons = [], [], []
         
         for i, img_tensor in enumerate(image):
             img_pil = tensor2pil(img_tensor).convert("RGB")
@@ -572,7 +572,6 @@ class VVL_GroundingDinoSAM2:
                 print("VVL_GroundingDinoSAM2: No objects detected.")
                 # Create empty results
                 annotated_images.append(pil2tensor(img_pil))
-                masked_images.append(pil2tensor(Image.new("RGB", img_pil.size, (0, 0, 0))))
                 detection_jsons.append(json.dumps({
                     "image_width": img_pil.width,
                     "image_height": img_pil.height,
@@ -591,11 +590,10 @@ class VVL_GroundingDinoSAM2:
                     (img_pil.width, img_pil.height), min_area_ratio, max_area_ratio
                 )
                 
-                # 如果所有结果都被过滤掉，创建空结果
+                # 如果所有结果都被面积过滤掉了
                 if not output_masks:
                     print(f"VVL_GroundingDinoSAM2: Image {i} - 所有分割结果都被面积过滤掉了")
                     annotated_images.append(pil2tensor(img_pil))
-                    masked_images.append(pil2tensor(Image.new("RGB", img_pil.size, (0, 0, 0))))
                     detection_jsons.append(json.dumps({
                         "image_width": img_pil.width,
                         "image_height": img_pil.height,
@@ -629,13 +627,6 @@ class VVL_GroundingDinoSAM2:
             if output_masks:
                 object_masks_list.extend(output_masks)
             
-            # Create masked image (combine all masks)
-            if output_images:
-                # Use the first masked image as representative
-                masked_images.append(output_images[0])
-            else:
-                masked_images.append(pil2tensor(Image.new("RGB", img_pil.size, (0, 0, 0))))
-            
             # Create detection JSON
             detection_json = {
                 "image_width": img_pil.width,
@@ -660,10 +651,9 @@ class VVL_GroundingDinoSAM2:
         
         # Stack results
         annotated_images_stacked = torch.stack(annotated_images) if annotated_images else torch.empty(0)
-        masked_images_stacked = torch.stack(masked_images) if masked_images else torch.empty(0)
         final_detection_json = detection_jsons[0] if detection_jsons else "{}"
         
-        return (annotated_images_stacked, object_masks_list, masked_images_stacked, final_detection_json)
+        return (annotated_images_stacked, object_masks_list, final_detection_json)
 
 # Node registration
 NODE_CLASS_MAPPINGS = {

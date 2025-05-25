@@ -86,12 +86,12 @@ class F2S2GenerateMask:
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE", "STRING",)
-    RETURN_NAMES = ("annotated_image", "object_masks", "masked_image", "detection_json",)
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING",)
+    RETURN_NAMES = ("annotated_image", "object_masks", "detection_json",)
     FUNCTION = "_process_image"
     CATEGORY = "💃rDancer"
     # 指示第二个输出 (object_masks) 为列表
-    OUTPUT_IS_LIST = (False, True, False, False)
+    OUTPUT_IS_LIST = (False, True, False)
 
     def _process_image(self, sam2_model: dict, image: torch.Tensor, prompt: str = "", 
                       iou_threshold: float = 0.5, external_caption: str = ""):
@@ -102,13 +102,13 @@ class F2S2GenerateMask:
         prompt_clean = prompt.strip() if prompt else ""
         external_caption_clean = external_caption.strip() if external_caption else ""
         
-        annotated_images, object_masks_list, masked_images, detection_jsons = [], [], [], []
+        annotated_images, object_masks_list, detection_jsons = [], [], []
         
         for i, img_tensor in enumerate(image):
             img_pil = tensor2pil(img_tensor).convert("RGB")
             
             # 调用process_image函数，传递SAM2模型名称和设备
-            annotated_image, _, object_masks_pil, masked_image, detection_json_data = process_image(
+            annotated_image, _, object_masks_pil, _, detection_json_data = process_image(
                 device, 
                 model_name,  # 传递SAM2模型名称
                 img_pil,
@@ -120,18 +120,16 @@ class F2S2GenerateMask:
             annotated_images.append(pil2tensor(annotated_image))
             if object_masks_pil and len(object_masks_pil) > 0:
                 object_masks_list.extend([pil2tensor(m) for m in object_masks_pil])
-            masked_images.append(pil2tensor(masked_image))
             
             json_str = json.dumps(detection_json_data, ensure_ascii=False, indent=2)
-            json_str = re.sub(r'"bbox_2d":\s*\[\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\s*\]', 
+            json_str = re.sub(r'"bbox_2d":\s*\[\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]',
                              r'"bbox_2d": [\1,\2,\3,\4]', json_str)
             detection_jsons.append(json_str)
             
         annotated_images_stacked = torch.stack(annotated_images) if annotated_images else torch.empty(0)
-        masked_images_stacked = torch.stack(masked_images) if masked_images else torch.empty(0)
         
         final_detection_json_str = detection_jsons[0] if detection_jsons else "{}"
-        return (annotated_images_stacked, object_masks_list, masked_images_stacked, final_detection_json_str)
+        return (annotated_images_stacked, object_masks_list, final_detection_json_str)
 
 
 # Combine node mappings from all nodes
