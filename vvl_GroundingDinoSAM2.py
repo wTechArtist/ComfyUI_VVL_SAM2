@@ -253,6 +253,120 @@ def remove_duplicate_boxes(boxes, object_names, iou_threshold=0.5):
     
     return filtered_boxes, filtered_object_names
 
+def filter_by_area(output_images, output_masks, detections_with_masks, object_names, image_size, 
+                  min_area_ratio=0.0001, max_area_ratio=0.9):
+    """
+    根据mask面积大小过滤分割结果
+    
+    Args:
+        output_images: SAM2分割得到的遮罩图像列表
+        output_masks: SAM2分割得到的mask列表  
+        detections_with_masks: supervision.Detections对象
+        object_names: 对象名称列表
+        image_size: 图像尺寸 (width, height)
+        min_area_ratio: 最小面积比例（相对于图像总面积）
+        max_area_ratio: 最大面积比例（相对于图像总面积）
+    
+    Returns:
+        过滤后的 (output_images, output_masks, detections_with_masks, object_names)
+    """
+    if not output_masks or detections_with_masks is None:
+        return output_images, output_masks, detections_with_masks, object_names
+    
+    width, height = image_size
+    total_area = width * height
+    min_area_pixels = total_area * min_area_ratio
+    max_area_pixels = total_area * max_area_ratio
+    
+    keep_indices = []
+    filtered_reasons = []
+    
+    # 计算每个mask的面积并判断是否保留
+    for i, mask_tensor in enumerate(output_masks):
+        # 将tensor转换为numpy数组并计算面积
+        if len(mask_tensor.shape) == 3:
+            # 如果是3D tensor (H, W, C)，取第一个通道
+            mask_array = mask_tensor[:, :, 0].numpy() > 0.5
+        else:
+            # 如果是2D tensor (H, W)
+            mask_array = mask_tensor.numpy() > 0.5
+        
+        mask_area = np.sum(mask_array)
+        area_ratio = mask_area / total_area
+        
+        if mask_area < min_area_pixels:
+            filtered_reasons.append(f"太小 (面积比例: {area_ratio:.4f} < {min_area_ratio})")
+        elif mask_area > max_area_pixels:
+            filtered_reasons.append(f"太大 (面积比例: {area_ratio:.4f} > {max_area_ratio})")
+        else:
+            keep_indices.append(i)
+    
+    # 如果有被过滤的项目，打印信息
+    if len(keep_indices) < len(output_masks):
+        filtered_count = len(output_masks) - len(keep_indices)
+        print(f"VVL_GroundingDinoSAM2: 基于面积过滤掉 {filtered_count} 个分割结果:")
+        for i, reason in enumerate(filtered_reasons):
+            if i not in keep_indices:
+                obj_name = object_names[i] if i < len(object_names) else f"object_{i+1}"
+                print(f"  - {obj_name}: {reason}")
+    
+    # 过滤结果
+    if not keep_indices:
+        # 如果所有结果都被过滤掉
+        return [], [], None, []
+    
+    # 过滤output_images和output_masks
+    filtered_output_images = [output_images[i] for i in keep_indices] if output_images else []
+    filtered_output_masks = [output_masks[i] for i in keep_indices]
+    filtered_object_names = [object_names[i] for i in keep_indices] if object_names else []
+    
+    # 过滤detections_with_masks
+    if detections_with_masks is not None:
+        # 创建新的detections对象，只包含保留的索引
+        if hasattr(detections_with_masks, 'xyxy') and detections_with_masks.xyxy is not None:
+            filtered_xyxy = detections_with_masks.xyxy[keep_indices]
+        else:
+            filtered_xyxy = None
+            
+        if hasattr(detections_with_masks, 'mask') and detections_with_masks.mask is not None:
+            filtered_mask = detections_with_masks.mask[keep_indices]
+        else:
+            filtered_mask = None
+            
+        if hasattr(detections_with_masks, 'confidence') and detections_with_masks.confidence is not None:
+            filtered_confidence = detections_with_masks.confidence[keep_indices]
+        else:
+            filtered_confidence = None
+            
+        if hasattr(detections_with_masks, 'class_id') and detections_with_masks.class_id is not None:
+            filtered_class_id = detections_with_masks.class_id[keep_indices]
+        else:
+            filtered_class_id = None
+        
+        # 创建新的Detections对象
+        filtered_detections = sv.Detections(
+            xyxy=filtered_xyxy,
+            mask=filtered_mask,
+            confidence=filtered_confidence,
+            class_id=filtered_class_id
+        )
+        
+        # 复制data字典
+        if hasattr(detections_with_masks, 'data') and detections_with_masks.data:
+            filtered_detections.data = {}
+            for key, value in detections_with_masks.data.items():
+                if isinstance(value, (list, np.ndarray)) and len(value) == len(output_masks):
+                    if isinstance(value, list):
+                        filtered_detections.data[key] = [value[i] for i in keep_indices]
+                    else:
+                        filtered_detections.data[key] = value[keep_indices]
+                else:
+                    filtered_detections.data[key] = value
+    else:
+        filtered_detections = None
+    
+    return filtered_output_images, filtered_output_masks, filtered_detections, filtered_object_names
+
 def sam2_segment(sam_model, image, boxes):
     """SAM2 segmentation function adapted for SAM2"""
     if boxes.shape[0] == 0:
@@ -331,6 +445,8 @@ class VVL_GroundingDinoSAM2:
             "optional": {
                 "external_caption": ("STRING", {"multiline": True, "default": ""}),
                 "load_florence2": ("BOOLEAN", {"default": True}),
+                "min_area_ratio": ("FLOAT", {"default": 0.002, "min": 0, "max": 1.0, "step": 0.0001, "tooltip": "最小面积比例（相对于图像总面积），用于过滤太小的分割结果"}),
+                "max_area_ratio": ("FLOAT", {"default": 0.2, "min": 0, "max": 1.0, "step": 0.01, "tooltip": "最大面积比例（相对于图像总面积），用于过滤太大的分割结果"}),
             }
         }
 
@@ -342,7 +458,7 @@ class VVL_GroundingDinoSAM2:
 
     def _process_image(self, sam2_model: dict, grounding_dino_model: str, image: torch.Tensor, 
                       prompt: str = "", threshold: float = 0.3, iou_threshold: float = 0.5, external_caption: str = "", 
-                      load_florence2: bool = True):
+                      load_florence2: bool = True, min_area_ratio: float = 0.0001, max_area_ratio: float = 0.9):
         
         # 从SAM2模型字典中获取模型和设备信息
         sam2_model_instance = sam2_model['model']
@@ -467,6 +583,26 @@ class VVL_GroundingDinoSAM2:
             # Use SAM2 for segmentation
             output_images, output_masks, detections_with_masks = sam2_segment(sam2_model_instance, img_pil, boxes)
             
+            # 应用面积过滤（如果有分割结果）
+            if output_masks and (min_area_ratio > 0 or max_area_ratio < 1.0):
+                print(f"VVL_GroundingDinoSAM2: Image {i} - 应用面积过滤（最小比例: {min_area_ratio}, 最大比例: {max_area_ratio}）")
+                output_images, output_masks, detections_with_masks, object_names = filter_by_area(
+                    output_images, output_masks, detections_with_masks, object_names, 
+                    (img_pil.width, img_pil.height), min_area_ratio, max_area_ratio
+                )
+                
+                # 如果所有结果都被过滤掉，创建空结果
+                if not output_masks:
+                    print(f"VVL_GroundingDinoSAM2: Image {i} - 所有分割结果都被面积过滤掉了")
+                    annotated_images.append(pil2tensor(img_pil))
+                    masked_images.append(pil2tensor(Image.new("RGB", img_pil.size, (0, 0, 0))))
+                    detection_jsons.append(json.dumps({
+                        "image_width": img_pil.width,
+                        "image_height": img_pil.height,
+                        "objects": []
+                    }, ensure_ascii=False, indent=2))
+                    continue
+            
             # 使用supervision库的标注器来标注图像
             if len(object_names) > 0 and detections_with_masks is not None:
                 # 创建标签列表，确保长度与检测结果匹配
@@ -507,8 +643,9 @@ class VVL_GroundingDinoSAM2:
                 "objects": []
             }
             
-            for j, bbox in enumerate(boxes):
-                if j < len(object_names):
+            # 使用过滤后的检测结果来生成JSON
+            if detections_with_masks is not None and hasattr(detections_with_masks, 'xyxy') and detections_with_masks.xyxy is not None:
+                for j, bbox in enumerate(detections_with_masks.xyxy):
                     bbox_2d = [int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])]
                     detection_json["objects"].append({
                         "name": object_names[j] if j < len(object_names) else f"object_{j+1}",
