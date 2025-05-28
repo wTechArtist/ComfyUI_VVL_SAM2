@@ -9,7 +9,7 @@ import supervision as sv
 from typing import Tuple, Optional, Any, List
 
 try:
-    from app import process_image
+    from florence_sam_processor import process_image
     from utils.sam import model_to_config_map as sam_model_to_config_map
     from utils.sam import load_sam_image_model, run_sam_inference
     from utils.florence import load_florence_model, run_florence_inference, \
@@ -17,7 +17,7 @@ try:
     from utils.modes import IMAGE_INFERENCE_MODES, IMAGE_OPEN_VOCABULARY_DETECTION_MODE, IMAGE_CAPTION_GROUNDING_MASKS_MODE, VIDEO_INFERENCE_MODES
 except ImportError:
     # We're running as a module
-    from .app import process_image
+    from .florence_sam_processor import process_image
     from .utils.sam import model_to_config_map as sam_model_to_config_map
     from .utils.sam import load_sam_image_model, run_sam_inference
     from .utils.florence import load_florence_model, run_florence_inference, \

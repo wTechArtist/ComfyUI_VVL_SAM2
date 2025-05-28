@@ -6,18 +6,18 @@ import json
 import re
 
 try:
-    from app import process_image
+    from florence_sam_processor import process_image
 except ImportError:
     # We're running as a module
-    from .app import process_image
+    from .florence_sam_processor import process_image
     from .utils.sam import model_to_config_map as sam_model_to_config_map
 
 # Import the new GroundingDINO + SAM2 node
 try:
-    from vvl_GroundingDinoSAM2 import NODE_CLASS_MAPPINGS as VVL_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as VVL_DISPLAY_MAPPINGS
+    from grounding_dino_sam2 import NODE_CLASS_MAPPINGS as VVL_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as VVL_DISPLAY_MAPPINGS
 except ImportError:
     try:
-        from .vvl_GroundingDinoSAM2 import NODE_CLASS_MAPPINGS as VVL_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as VVL_DISPLAY_MAPPINGS
+        from .grounding_dino_sam2 import NODE_CLASS_MAPPINGS as VVL_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as VVL_DISPLAY_MAPPINGS
     except ImportError:
         print("Warning: Could not import VVL_GroundingDinoSAM2 node")
         VVL_NODE_MAPPINGS = {}
@@ -25,10 +25,10 @@ except ImportError:
 
 # Import the SAM2 loader node
 try:
-    from vvl_model_loader import NODE_CLASS_MAPPINGS as LOADER_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as LOADER_DISPLAY_MAPPINGS
+    from model_loader import NODE_CLASS_MAPPINGS as LOADER_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as LOADER_DISPLAY_MAPPINGS
 except ImportError:
     try:
-        from .vvl_model_loader import NODE_CLASS_MAPPINGS as LOADER_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as LOADER_DISPLAY_MAPPINGS
+        from .model_loader import NODE_CLASS_MAPPINGS as LOADER_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as LOADER_DISPLAY_MAPPINGS
     except ImportError:
         print("Warning: Could not import VVL_SAM2Loader node")
         LOADER_NODE_MAPPINGS = {}
@@ -36,10 +36,10 @@ except ImportError:
 
 # Import the Mask Cleaner node
 try:
-    from vvl_nodes_mask_cleaner import NODE_CLASS_MAPPINGS as CLEANER_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as CLEANER_DISPLAY_MAPPINGS
+    from mask_cleaner import NODE_CLASS_MAPPINGS as CLEANER_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as CLEANER_DISPLAY_MAPPINGS
 except ImportError:
     try:
-        from .vvl_nodes_mask_cleaner import NODE_CLASS_MAPPINGS as CLEANER_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as CLEANER_DISPLAY_MAPPINGS
+        from .mask_cleaner import NODE_CLASS_MAPPINGS as CLEANER_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as CLEANER_DISPLAY_MAPPINGS
     except ImportError:
         print("Warning: Could not import VVL_MaskCleaner node")
         CLEANER_NODE_MAPPINGS = {}
@@ -183,7 +183,7 @@ if __name__ == "__main__":
     import sys
     import os
     import argparse
-    from app import process_image
+    from florence_sam_processor import process_image
 
     # import rdancer_debug # will listen for debugger to attach
 
@@ -220,7 +220,7 @@ if __name__ == "__main__":
 
     print(f"Processing {len(images)} image{'' if len(images) == 1 else 's'} with prompt: {prompt}")
 
-    from app import process_image
+    from florence_sam_processor import process_image
 
     for image in images:
         output_image_path, output_mask_path, output_masked_image_path = my_process_image(image, prompt)
