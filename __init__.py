@@ -45,6 +45,13 @@ except ImportError:
         CLEANER_NODE_MAPPINGS = {}
         CLEANER_DISPLAY_MAPPINGS = {}
 
+# Import Panoptic nodes (SAM1 Auto Everything & Mask2Former)
+try:
+    from .panoptic.sam_auto_everything import NODE_CLASS_MAPPINGS as PAN_NODE1, NODE_DISPLAY_NAME_MAPPINGS as PAN_DISP1
+    from .panoptic.mask2former_panoptic import NODE_CLASS_MAPPINGS as PAN_NODE2, NODE_DISPLAY_NAME_MAPPINGS as PAN_DISP2
+except ImportError:
+    PAN_NODE1, PAN_DISP1, PAN_NODE2, PAN_DISP2 = {}, {}, {}, {}
+
 # Format conversion helpers adapted from LayerStyle -- but LayerStyle has them
 # wrong: this is not the place to squeeze/unsqueeze.
 #
@@ -159,6 +166,10 @@ NODE_CLASS_MAPPINGS.update(LOADER_NODE_MAPPINGS)
 # Add the VVL Mask Cleaner node if available
 NODE_CLASS_MAPPINGS.update(CLEANER_NODE_MAPPINGS)
 
+# Append panoptic nodes
+NODE_CLASS_MAPPINGS.update(PAN_NODE1)
+NODE_CLASS_MAPPINGS.update(PAN_NODE2)
+
 NODE_DISPLAY_NAME_MAPPINGS = {
     "VVL_Florence2SAM2": "VVL Florence2 + SAM2"
 }
@@ -171,6 +182,10 @@ NODE_DISPLAY_NAME_MAPPINGS.update(LOADER_DISPLAY_MAPPINGS)
 
 # Add display name mappings for cleaner node
 NODE_DISPLAY_NAME_MAPPINGS.update(CLEANER_DISPLAY_MAPPINGS)
+
+# Add display name mappings for panoptic nodes
+NODE_DISPLAY_NAME_MAPPINGS.update(PAN_DISP1)
+NODE_DISPLAY_NAME_MAPPINGS.update(PAN_DISP2)
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
 
