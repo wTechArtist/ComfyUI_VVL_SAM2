@@ -28,8 +28,8 @@ def fill_internal_holes(mask: np.ndarray) -> np.ndarray:
     填补mask内部的空洞
     
     核心思路：
-    - 对每个白色连通域，检测其内部的黑色空洞
-    - 填补所有检测到的内部空洞
+    - 对每个白色连通域，检测其内部真正的黑色空洞
+    - 只填补完全被白色区域包围的黑色区域，不改变边缘形状
     """
     # 1. 找到所有白色连通域
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
@@ -48,17 +48,40 @@ def fill_internal_holes(mask: np.ndarray) -> np.ndarray:
         # 提取边界框区域进行处理（提高效率）
         region_roi = current_region[y:y+h, x:x+w]
         
-        # 使用形态学闭运算填补内部空洞
-        # 动态调整核大小，确保能够填补大部分内部空洞
-        kernel_size = max(5, min(w, h) // 10)
-        # 确保kernel_size是奇数
-        if kernel_size % 2 == 0:
-            kernel_size += 1
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-        filled_roi = cv2.morphologyEx(region_roi, cv2.MORPH_CLOSE, kernel)
+        # 使用漫水填充法检测内部空洞
+        # 创建一个稍大的画布，边界填充0
+        padded_region = np.zeros((h + 2, w + 2), dtype=np.uint8)
+        padded_region[1:h+1, 1:w+1] = region_roi
+        
+        # 从边界开始漫水填充，标记所有与边界连通的黑色区域
+        # 这些区域不是内部空洞
+        temp_mask = padded_region.copy()
+        
+        # 从四个边界开始漫水填充
+        for start_point in [(0, 0), (0, w+1), (h+1, 0), (h+1, w+1)]:
+            if temp_mask[start_point] == 0:
+                cv2.floodFill(temp_mask, None, start_point, 128)
+        
+        # 从边界的所有黑色像素开始填充
+        for i in range(h + 2):
+            for j in [0, w + 1]:  # 左右边界
+                if temp_mask[i, j] == 0:
+                    cv2.floodFill(temp_mask, None, (j, i), 128)
+        
+        for j in range(w + 2):
+            for i in [0, h + 1]:  # 上下边界
+                if temp_mask[i, j] == 0:
+                    cv2.floodFill(temp_mask, None, (j, i), 128)
+        
+        # 提取真正的内部空洞（值仍为0的黑色区域）
+        internal_holes = (temp_mask[1:h+1, 1:w+1] == 0) & (region_roi == 0)
+        
+        # 填补内部空洞
+        region_roi_filled = region_roi.copy()
+        region_roi_filled[internal_holes] = 255
         
         # 将填补后的区域更新到结果mask中
-        filled_mask[y:y+h, x:x+w] = filled_roi
+        filled_mask[y:y+h, x:x+w] = region_roi_filled
     
     return filled_mask
 
@@ -212,5 +235,5 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "VVL_MaskCleaner": "VVL Mask清理器"
+    "VVL_MaskCleaner": "VVL Mask Cleaner"
 } 
