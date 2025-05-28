@@ -89,4 +89,4 @@ class SAM1AutoEverything:
 
 # 节点注册
 NODE_CLASS_MAPPINGS = {"SAM1AutoEverything": SAM1AutoEverything}
-NODE_DISPLAY_NAME_MAPPINGS = {"SAM1AutoEverything": "SAM1 Auto Everything"} 
+NODE_DISPLAY_NAME_MAPPINGS = {"SAM1AutoEverything": "VVL SAM1 Auto Everything"} 

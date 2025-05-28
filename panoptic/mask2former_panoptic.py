@@ -111,4 +111,4 @@ class Mask2FormerPanoptic:
         return (masks_out, detection_json_str, object_names)
 
 NODE_CLASS_MAPPINGS = {"Mask2FormerPanoptic": Mask2FormerPanoptic}
-NODE_DISPLAY_NAME_MAPPINGS = {"Mask2FormerPanoptic": "Mask2Former Panoptic"} 
+NODE_DISPLAY_NAME_MAPPINGS = {"Mask2FormerPanoptic": "VVL Mask2Former Panoptic"} 
