@@ -435,18 +435,55 @@ class VVL_GroundingDinoSAM2:
         
         return {
             "required": {
-                "sam2_model": ("VVL_SAM2_MODEL",),
-                "grounding_dino_model": (grounding_dino_models, {"default": grounding_dino_models[0]}),
-                "image": ("IMAGE",),
-                "prompt": ("STRING", {"default": ""}),
-                "threshold": ("FLOAT", {"default": 0.3, "min": 0, "max": 1.0, "step": 0.01}),
-                "iou_threshold": ("FLOAT", {"default": 0.5, "min": 0, "max": 1.0, "step": 0.01}),
+                "sam2_model": ("VVL_SAM2_MODEL", {"tooltip": "SAM2分割模型，用于对检测到的对象进行精确分割"}),
+                "grounding_dino_model": (grounding_dino_models, {
+                    "default": grounding_dino_models[0],
+                    "tooltip": "GroundingDINO目标检测模型，用于根据文本提示检测图像中的对象。SwinT_OGC模型较小但速度快，SwinB模型较大但精度更高"
+                }),
+                "image": ("IMAGE", {"tooltip": "输入的图像，支持批量处理多张图像"}),
+                "prompt": ("STRING", {
+                    "default": "",
+                    "tooltip": "目标检测的文本提示词，用逗号分隔多个对象，如'person,car,dog'。留空时将使用Florence-2自动生成描述"
+                }),
+                "threshold": ("FLOAT", {
+                    "default": 0.3, 
+                    "min": 0, 
+                    "max": 1.0, 
+                    "step": 0.01,
+                    "tooltip": "目标检测的置信度阈值，值越高检测越严格，建议范围0.2-0.5。过低会产生误检，过高可能漏检"
+                }),
+                "iou_threshold": ("FLOAT", {
+                    "default": 0.5, 
+                    "min": 0, 
+                    "max": 1.0, 
+                    "step": 0.01,
+                    "tooltip": "IoU阈值用于去除重复检测框，值越高保留的重叠框越多。建议0.3-0.7，避免同一对象被重复分割"
+                }),
             },
             "optional": {
-                "external_caption": ("STRING", {"multiline": True, "default": ""}),
-                "load_florence2": ("BOOLEAN", {"default": True}),
-                "min_area_ratio": ("FLOAT", {"default": 0.002, "min": 0, "max": 1.0, "step": 0.0001, "tooltip": "最小面积比例（相对于图像总面积），用于过滤太小的分割结果"}),
-                "max_area_ratio": ("FLOAT", {"default": 0.2, "min": 0, "max": 1.0, "step": 0.01, "tooltip": "最大面积比例（相对于图像总面积），用于过滤太大的分割结果"}),
+                "external_caption": ("STRING", {
+                    "multiline": True, 
+                    "default": "",
+                    "tooltip": "外部提供的图像描述文本，用逗号分隔多个对象。当prompt为空时，优先使用此描述进行目标检测"
+                }),
+                "load_florence2": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "是否加载Florence-2模型用于自动生成图像描述。当prompt和external_caption都为空时，将自动描述图像内容并进行检测"
+                }),
+                "min_area_ratio": ("FLOAT", {
+                    "default": 0.002, 
+                    "min": 0, 
+                    "max": 1.0, 
+                    "step": 0.0001, 
+                    "tooltip": "最小面积比例（相对于图像总面积），用于过滤太小的分割结果。0.002表示占图像0.2%以下的区域将被过滤掉"
+                }),
+                "max_area_ratio": ("FLOAT", {
+                    "default": 0.2, 
+                    "min": 0, 
+                    "max": 1.0, 
+                    "step": 0.01, 
+                    "tooltip": "最大面积比例（相对于图像总面积），用于过滤太大的分割结果。0.2表示占图像20%以上的区域将被过滤掉，避免背景误检"
+                }),
             }
         }
 
