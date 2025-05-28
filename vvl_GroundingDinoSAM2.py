@@ -450,11 +450,11 @@ class VVL_GroundingDinoSAM2:
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "STRING",)
-    RETURN_NAMES = ("annotated_image", "object_masks", "detection_json",)
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "STRING",)
+    RETURN_NAMES = ("annotated_image", "object_masks", "detection_json", "object_names",)
     FUNCTION = "_process_image"
     CATEGORY = "💃rDancer"
-    OUTPUT_IS_LIST = (False, True, False)
+    OUTPUT_IS_LIST = (False, True, False, True)
 
     def _process_image(self, sam2_model: dict, grounding_dino_model: str, image: torch.Tensor, 
                       prompt: str = "", threshold: float = 0.3, iou_threshold: float = 0.5, external_caption: str = "", 
@@ -470,7 +470,7 @@ class VVL_GroundingDinoSAM2:
         prompt_clean = prompt.strip() if prompt else ""
         external_caption_clean = external_caption.strip() if external_caption else ""
         
-        annotated_images, object_masks_list, detection_jsons = [], [], []
+        annotated_images, object_masks_list, detection_jsons, final_object_names = [], [], [], []
         
         for i, img_tensor in enumerate(image):
             img_pil = tensor2pil(img_tensor).convert("RGB")
@@ -601,6 +601,9 @@ class VVL_GroundingDinoSAM2:
                     }, ensure_ascii=False, indent=2))
                     continue
             
+            # 将最终的对象名称添加到列表中
+            final_object_names.extend(object_names)
+            
             # 使用supervision库的标注器来标注图像
             if len(object_names) > 0 and detections_with_masks is not None:
                 # 创建标签列表，确保长度与检测结果匹配
@@ -653,7 +656,7 @@ class VVL_GroundingDinoSAM2:
         annotated_images_stacked = torch.stack(annotated_images) if annotated_images else torch.empty(0)
         final_detection_json = detection_jsons[0] if detection_jsons else "{}"
         
-        return (annotated_images_stacked, object_masks_list, final_detection_json)
+        return (annotated_images_stacked, object_masks_list, final_detection_json, final_object_names)
 
 # Node registration
 NODE_CLASS_MAPPINGS = {
