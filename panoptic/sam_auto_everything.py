@@ -4,13 +4,99 @@ from PIL import Image
 from typing import List, Tuple
 import json
 import supervision as sv  # 添加supervision库用于图像标注
+import os
+import folder_paths
+import comfy.model_management
+from torch.hub import download_url_to_file
+from urllib.parse import urlparse
+import logging
 
 try:
-    from segment_anything import SamAutomaticMaskGenerator
+    from segment_anything import SamAutomaticMaskGenerator, sam_model_registry
+    # 尝试导入 sam_hq 的模型注册表
+    try:
+        from sam_hq.build_sam_hq import sam_model_registry as sam_hq_model_registry
+        # 合并 sam_hq 到 sam_model_registry
+        sam_model_registry.update(sam_hq_model_registry)
+        SAM_HQ_AVAILABLE = True
+    except ImportError:
+        SAM_HQ_AVAILABLE = False
+        print("Warning: sam_hq 模块未找到，SAM-HQ 模型将不可用")
 except ImportError as e:
     raise ImportError("segment_anything 库未安装，请执行 pip install git+https://github.com/facebookresearch/segment-anything.git") from e
 
 from ..utils.panoptic_utils import mask_to_bbox, build_detection_json
+
+logger = logging.getLogger('ComfyUI_VVL_SAM2')
+
+# SAM1 模型配置
+sam_model_dir_name = "sams"
+sam_model_list = {
+    "sam_vit_h (2.56GB)": {
+        "model_url": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth"
+    },
+    "sam_vit_l (1.25GB)": {
+        "model_url": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_l_0b3195.pth"
+    },
+    "sam_vit_b (375MB)": {
+        "model_url": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth"
+    },
+    "sam_hq_vit_h (2.57GB)": {
+        "model_url": "https://huggingface.co/lkeab/hq-sam/resolve/main/sam_hq_vit_h.pth"
+    },
+    "sam_hq_vit_l (1.25GB)": {
+        "model_url": "https://huggingface.co/lkeab/hq-sam/resolve/main/sam_hq_vit_l.pth"
+    },
+    "sam_hq_vit_b (379MB)": {
+        "model_url": "https://huggingface.co/lkeab/hq-sam/resolve/main/sam_hq_vit_b.pth"
+    },
+}
+
+def list_sam_model():
+    """列出可用的 SAM1 模型"""
+    available_models = []
+    for model_name in sam_model_list.keys():
+        # 如果是 SAM-HQ 模型但 SAM-HQ 不可用，则跳过
+        if 'sam_hq' in model_name and not SAM_HQ_AVAILABLE:
+            continue
+        available_models.append(model_name)
+    return available_models
+
+def get_local_filepath(url, dirname, local_file_name=None):
+    """获取本地文件路径，如果不存在则下载"""
+    if not local_file_name:
+        parsed_url = urlparse(url)
+        local_file_name = os.path.basename(parsed_url.path)
+
+    destination = folder_paths.get_full_path(dirname, local_file_name)
+    if destination:
+        logger.warn(f'using extra model: {destination}')
+        return destination
+
+    folder = os.path.join(folder_paths.models_dir, dirname)
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+
+    destination = os.path.join(folder, local_file_name)
+    if not os.path.exists(destination):
+        logger.warn(f'downloading {url} to {destination}')
+        download_url_to_file(url, destination)
+    return destination
+
+def load_sam_model(model_name):
+    """加载 SAM1 模型"""
+    sam_checkpoint_path = get_local_filepath(
+        sam_model_list[model_name]["model_url"], sam_model_dir_name)
+    model_file_name = os.path.basename(sam_checkpoint_path)
+    model_type = model_file_name.split('.')[0]
+    if 'hq' not in model_type and 'mobile' not in model_type:
+        model_type = '_'.join(model_type.split('_')[:-1])
+    sam = sam_model_registry[model_type](checkpoint=sam_checkpoint_path)
+    sam_device = comfy.model_management.get_torch_device()
+    sam.to(device=sam_device)
+    sam.eval()
+    sam.model_name = model_file_name
+    return sam
 
 # 全局缓存 generator，提高批量速度
 _AUTO_GENERATORS = {}
@@ -53,6 +139,25 @@ def pil2tensor(image: Image.Image) -> torch.Tensor:
     """转换PIL图像到tensor"""
     return torch.from_numpy(np.array(image).astype(np.float32) / 255.0)
 
+class VVL_SAM1Loader:
+    """VVL SAM1 模型加载器"""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model_name": (list_sam_model(), {"tooltip": "选择要加载的 SAM1 模型"}),
+            }
+        }
+
+    RETURN_TYPES = ("SAM_MODEL",)
+    FUNCTION = "load_model"
+    CATEGORY = "💃rDancer/Loaders"
+
+    def load_model(self, model_name):
+        sam_model = load_sam_model(model_name)
+        return (sam_model,)
+
 class SAM1AutoEverything:
     """SAM1 AutomaticMaskGenerator 一键分割节点"""
 
@@ -60,7 +165,7 @@ class SAM1AutoEverything:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "sam1_model": ("SAM_MODEL", {"tooltip": "由 SAMModelLoader 加载的 SAM1 模型（sam_vit_h / sam_vit_l / sam_vit_b 或 sam_hq_vit_* 系列）"}),
+                "sam1_model": ("SAM_MODEL", {"tooltip": "由 VVL_SAM1Loader 加载的 SAM1 模型"}),
                 "image": ("IMAGE", {"tooltip": "输入图像，支持批量处理"}),
             },
             "optional": {
@@ -78,10 +183,10 @@ class SAM1AutoEverything:
     FUNCTION = "_generate"
     CATEGORY = "💃rDancer/Panoptic"
 
-    def _generate(self, sam1_model: dict, image: torch.Tensor, points_per_side: int = 32,
+    def _generate(self, sam1_model, image: torch.Tensor, points_per_side: int = 32,
                   pred_iou_thresh: float = 0.86, stability_score_thresh: float = 0.92,
                   max_mask_count: int = 256, min_mask_area: int = 0):
-        sam_model = sam1_model['model'] if isinstance(sam1_model, dict) else sam1_model
+        sam_model = sam1_model if not isinstance(sam1_model, dict) else sam1_model.get('model', sam1_model)
         device = sam_model.device if hasattr(sam_model, 'device') else torch.device('cpu')
 
         generator = _get_generator(
@@ -153,5 +258,11 @@ class SAM1AutoEverything:
         return (annotated_images_stacked, masks_out, detection_json_str, object_names)
 
 # 节点注册
-NODE_CLASS_MAPPINGS = {"SAM1AutoEverything": SAM1AutoEverything}
-NODE_DISPLAY_NAME_MAPPINGS = {"SAM1AutoEverything": "VVL SAM1 Auto Everything"} 
+NODE_CLASS_MAPPINGS = {
+    "VVL_SAM1Loader": VVL_SAM1Loader,
+    "SAM1AutoEverything": SAM1AutoEverything
+}
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "VVL_SAM1Loader": "VVL SAM1 Loader",
+    "SAM1AutoEverything": "VVL SAM1 Auto Everything"
+} 
