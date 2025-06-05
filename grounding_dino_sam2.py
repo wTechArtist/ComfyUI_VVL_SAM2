@@ -484,6 +484,9 @@ class VVL_GroundingDinoSAM2:
                     "step": 0.01, 
                     "tooltip": "最大面积比例（相对于图像总面积），用于过滤太大的分割结果。0.2表示占图像20%以上的区域将被过滤掉，避免背景误检"
                 }),
+                "remaining_area_mask": ("MASK", {
+                    "tooltip": "可选：用于计算剩余区域的输入mask。当提供时，节点将在输出object_masks中新增一个mask，代表(输入mask ∩ 非已分割区域)"
+                }),
             }
         }
 
@@ -495,7 +498,8 @@ class VVL_GroundingDinoSAM2:
 
     def _process_image(self, sam2_model: dict, grounding_dino_model: str, image: torch.Tensor, 
                       prompt: str = "", threshold: float = 0.3, iou_threshold: float = 0.5, external_caption: str = "", 
-                      load_florence2: bool = True, min_area_ratio: float = 0.0001, max_area_ratio: float = 0.9):
+                      load_florence2: bool = True, min_area_ratio: float = 0.0001, max_area_ratio: float = 0.9,
+                      remaining_area_mask: Optional[torch.Tensor] = None):
         
         # 从SAM2模型字典中获取模型和设备信息
         sam2_model_instance = sam2_model['model']
@@ -638,6 +642,83 @@ class VVL_GroundingDinoSAM2:
                     }, ensure_ascii=False, indent=2))
                     continue
             
+            # 处理 remaining_area_mask，生成剩余区域mask
+            if remaining_area_mask is not None:
+                # 取得当前批次对应的输入mask
+                if remaining_area_mask.ndim == 4:
+                    cur_input_mask = remaining_area_mask[i]
+                else:
+                    cur_input_mask = remaining_area_mask
+
+                # 转换为 (H, W) 的布尔数组
+                input_mask_np = cur_input_mask.cpu().numpy()
+                if input_mask_np.ndim == 3:
+                    # 处理形状为 (C, H, W) 或 (H, W, C)
+                    if input_mask_np.shape[0] == 1:  # (1, H, W)
+                        input_mask_np = input_mask_np[0]
+                    else:  # (H, W, 1) 或其他
+                        input_mask_np = input_mask_np[:, :, 0]
+                input_mask_bool = np.squeeze(input_mask_np) > 0.5
+
+                # 合并已有的所有mask
+                combined_existing = np.zeros_like(input_mask_bool, dtype=bool)
+                for m_tensor in output_masks:
+                    m_np = m_tensor.cpu().numpy()
+                    if m_np.ndim == 3:
+                        if m_np.shape[0] == 1:
+                            m_np = m_np[0]
+                        else:
+                            m_np = m_np[:, :, 0]
+                    combined_existing |= (m_np > 0.5)
+
+                # 计算剩余区域 (输入mask 交 非已分割区域)
+                remain_bool = np.logical_and(input_mask_bool, np.logical_not(combined_existing))
+
+                if np.sum(remain_bool) > 0:
+                    # 生成mask tensor
+                    remain_mask_pil = Image.fromarray((remain_bool * 255).astype(np.uint8)).convert("L")
+                    remain_mask_tensor = pil2tensor(remain_mask_pil)
+                    output_masks.append(remain_mask_tensor)
+
+                    # 生成对应的masked image
+                    img_np_full = np.array(img_pil)
+                    img_np_copy = copy.deepcopy(img_np_full)
+                    if len(img_np_copy.shape) == 3:
+                        img_np_copy[~remain_bool] = np.array([0, 0, 0])
+                    else:
+                        img_np_copy[~remain_bool] = np.array([0, 0, 0, 0])
+                    remain_image_pil = Image.fromarray(img_np_copy)
+                    output_images.append(pil2tensor(remain_image_pil.convert("RGB")))
+
+                    # 计算bbox
+                    ys, xs = np.where(remain_bool)
+                    x_min, x_max = int(xs.min()), int(xs.max())
+                    y_min, y_max = int(ys.min()), int(ys.max())
+                    bbox_tensor = torch.tensor([x_min, y_min, x_max, y_max], dtype=torch.float32)
+
+                    # 更新 detections_with_masks
+                    if detections_with_masks is None:
+                        detections_with_masks = sv.Detections(xyxy=bbox_tensor.unsqueeze(0), mask=np.asarray([remain_bool]))
+                    else:
+                        # 根据现有 xyxy 的数据类型决定拼接方式，避免 numpy 与 tensor 冲突
+                        if hasattr(detections_with_masks, 'xyxy') and detections_with_masks.xyxy is not None:
+                            if isinstance(detections_with_masks.xyxy, np.ndarray):
+                                bbox_np = bbox_tensor.cpu().numpy()[None, :]
+                                detections_with_masks.xyxy = np.concatenate([detections_with_masks.xyxy, bbox_np], axis=0)
+                            else:
+                                detections_with_masks.xyxy = torch.cat([detections_with_masks.xyxy, bbox_tensor.unsqueeze(0)], dim=0)
+                        else:
+                            # 初始为空时沿用 bbox 的类型
+                            detections_with_masks.xyxy = bbox_tensor.unsqueeze(0)
+                        # mask
+                        if hasattr(detections_with_masks, 'mask') and detections_with_masks.mask is not None:
+                            detections_with_masks.mask = np.concatenate([detections_with_masks.mask, remain_bool[None, :, :]], axis=0)
+                        else:
+                            detections_with_masks.mask = np.asarray([remain_bool])
+                    
+                    # 追加名称
+                    object_names.append("remaining_area")
+
             # 将最终的对象名称添加到列表中
             final_object_names.extend(object_names)
             
