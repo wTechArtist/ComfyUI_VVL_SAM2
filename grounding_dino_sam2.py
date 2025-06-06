@@ -15,6 +15,7 @@ try:
     from utils.florence import load_florence_model, run_florence_inference, \
         FLORENCE_OPEN_VOCABULARY_DETECTION_TASK, FLORENCE_DETAILED_CAPTION_TASK, FLORENCE_CAPTION_TO_PHRASE_GROUNDING_TASK
     from utils.modes import IMAGE_INFERENCE_MODES, IMAGE_OPEN_VOCABULARY_DETECTION_MODE, IMAGE_CAPTION_GROUNDING_MASKS_MODE, VIDEO_INFERENCE_MODES
+    from mask_cleaner import remove_small_regions
 except ImportError:
     # We're running as a module
     from .florence_sam_processor import process_image
@@ -23,6 +24,7 @@ except ImportError:
     from .utils.florence import load_florence_model, run_florence_inference, \
         FLORENCE_OPEN_VOCABULARY_DETECTION_TASK, FLORENCE_DETAILED_CAPTION_TASK, FLORENCE_CAPTION_TO_PHRASE_GROUNDING_TASK
     from .utils.modes import IMAGE_INFERENCE_MODES, IMAGE_OPEN_VOCABULARY_DETECTION_MODE, IMAGE_CAPTION_GROUNDING_MASKS_MODE, VIDEO_INFERENCE_MODES
+    from .mask_cleaner import remove_small_regions
 
 # GroundingDINO imports (adapted from node.py)
 import logging
@@ -675,49 +677,56 @@ class VVL_GroundingDinoSAM2:
                 remain_bool = np.logical_and(input_mask_bool, np.logical_not(combined_existing))
 
                 if np.sum(remain_bool) > 0:
-                    # 生成mask tensor
-                    remain_mask_pil = Image.fromarray((remain_bool * 255).astype(np.uint8)).convert("L")
-                    remain_mask_tensor = pil2tensor(remain_mask_pil)
-                    output_masks.append(remain_mask_tensor)
-
-                    # 生成对应的masked image
-                    img_np_full = np.array(img_pil)
-                    img_np_copy = copy.deepcopy(img_np_full)
-                    if len(img_np_copy.shape) == 3:
-                        img_np_copy[~remain_bool] = np.array([0, 0, 0])
-                    else:
-                        img_np_copy[~remain_bool] = np.array([0, 0, 0, 0])
-                    remain_image_pil = Image.fromarray(img_np_copy)
-                    output_images.append(pil2tensor(remain_image_pil.convert("RGB")))
-
-                    # 计算bbox
-                    ys, xs = np.where(remain_bool)
-                    x_min, x_max = int(xs.min()), int(xs.max())
-                    y_min, y_max = int(ys.min()), int(ys.max())
-                    bbox_tensor = torch.tensor([x_min, y_min, x_max, y_max], dtype=torch.float32)
-
-                    # 更新 detections_with_masks
-                    if detections_with_masks is None:
-                        detections_with_masks = sv.Detections(xyxy=bbox_tensor.unsqueeze(0), mask=np.asarray([remain_bool]))
-                    else:
-                        # 根据现有 xyxy 的数据类型决定拼接方式，避免 numpy 与 tensor 冲突
-                        if hasattr(detections_with_masks, 'xyxy') and detections_with_masks.xyxy is not None:
-                            if isinstance(detections_with_masks.xyxy, np.ndarray):
-                                bbox_np = bbox_tensor.cpu().numpy()[None, :]
-                                detections_with_masks.xyxy = np.concatenate([detections_with_masks.xyxy, bbox_np], axis=0)
-                            else:
-                                detections_with_masks.xyxy = torch.cat([detections_with_masks.xyxy, bbox_tensor.unsqueeze(0)], dim=0)
-                        else:
-                            # 初始为空时沿用 bbox 的类型
-                            detections_with_masks.xyxy = bbox_tensor.unsqueeze(0)
-                        # mask
-                        if hasattr(detections_with_masks, 'mask') and detections_with_masks.mask is not None:
-                            detections_with_masks.mask = np.concatenate([detections_with_masks.mask, remain_bool[None, :, :]], axis=0)
-                        else:
-                            detections_with_masks.mask = np.asarray([remain_bool])
+                    # 清理零碎区域，只保留最大的连通域
+                    remain_uint8 = (remain_bool * 255).astype(np.uint8)
+                    remain_cleaned = remove_small_regions(remain_uint8, keep_largest_n=1)
+                    remain_bool_cleaned = remain_cleaned > 127
                     
-                    # 追加名称
-                    object_names.append("remaining_area")
+                    # 如果清理后还有区域存在，则继续处理
+                    if np.sum(remain_bool_cleaned) > 0:
+                        # 生成mask tensor
+                        remain_mask_pil = Image.fromarray(remain_cleaned).convert("L")
+                        remain_mask_tensor = pil2tensor(remain_mask_pil)
+                        output_masks.append(remain_mask_tensor)
+
+                        # 生成对应的masked image
+                        img_np_full = np.array(img_pil)
+                        img_np_copy = copy.deepcopy(img_np_full)
+                        if len(img_np_copy.shape) == 3:
+                            img_np_copy[~remain_bool_cleaned] = np.array([0, 0, 0])
+                        else:
+                            img_np_copy[~remain_bool_cleaned] = np.array([0, 0, 0, 0])
+                        remain_image_pil = Image.fromarray(img_np_copy)
+                        output_images.append(pil2tensor(remain_image_pil.convert("RGB")))
+
+                        # 计算bbox（基于清理后的mask）
+                        ys, xs = np.where(remain_bool_cleaned)
+                        x_min, x_max = int(xs.min()), int(xs.max())
+                        y_min, y_max = int(ys.min()), int(ys.max())
+                        bbox_tensor = torch.tensor([x_min, y_min, x_max, y_max], dtype=torch.float32)
+
+                        # 更新 detections_with_masks
+                        if detections_with_masks is None:
+                            detections_with_masks = sv.Detections(xyxy=bbox_tensor.unsqueeze(0), mask=np.asarray([remain_bool_cleaned]))
+                        else:
+                            # 根据现有 xyxy 的数据类型决定拼接方式，避免 numpy 与 tensor 冲突
+                            if hasattr(detections_with_masks, 'xyxy') and detections_with_masks.xyxy is not None:
+                                if isinstance(detections_with_masks.xyxy, np.ndarray):
+                                    bbox_np = bbox_tensor.cpu().numpy()[None, :]
+                                    detections_with_masks.xyxy = np.concatenate([detections_with_masks.xyxy, bbox_np], axis=0)
+                                else:
+                                    detections_with_masks.xyxy = torch.cat([detections_with_masks.xyxy, bbox_tensor.unsqueeze(0)], dim=0)
+                            else:
+                                # 初始为空时沿用 bbox 的类型
+                                detections_with_masks.xyxy = bbox_tensor.unsqueeze(0)
+                            # mask
+                            if hasattr(detections_with_masks, 'mask') and detections_with_masks.mask is not None:
+                                detections_with_masks.mask = np.concatenate([detections_with_masks.mask, remain_bool_cleaned[None, :, :]], axis=0)
+                            else:
+                                detections_with_masks.mask = np.asarray([remain_bool_cleaned])
+                        
+                        # 追加名称
+                        object_names.append("remaining_area")
 
             # 将最终的对象名称添加到列表中
             final_object_names.extend(object_names)
