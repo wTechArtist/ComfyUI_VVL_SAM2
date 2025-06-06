@@ -211,7 +211,7 @@ def calculate_iou(box1, box2):
     return inter_area / union_area
 
 def remove_duplicate_boxes(boxes, object_names, iou_threshold=0.5):
-    """使用NMS算法去除重复的边界框"""
+    """使用NMS算法去除重复的边界框（仅作为初步过滤）"""
     if boxes.shape[0] == 0:
         return boxes, object_names
     
@@ -254,6 +254,130 @@ def remove_duplicate_boxes(boxes, object_names, iou_threshold=0.5):
     filtered_object_names = [object_names[i] for i in keep_indices] if object_names else []
     
     return filtered_boxes, filtered_object_names
+
+def calculate_mask_containment_ratio(mask1, mask2):
+    """计算 mask2 被 mask1 包含的比例"""
+    # 确保两个mask的形状相同
+    if mask1.shape != mask2.shape:
+        return 0.0
+    
+    # 转换为布尔数组
+    mask1_bool = mask1 > 0.5
+    mask2_bool = mask2 > 0.5
+    
+    # 计算 mask2 的面积
+    mask2_area = np.sum(mask2_bool)
+    if mask2_area == 0:
+        return 0.0
+    
+    # 计算 mask2 被 mask1 包含的区域
+    intersection = np.sum(mask1_bool & mask2_bool)
+    
+    # 返回包含比例
+    return intersection / mask2_area
+
+def remove_duplicate_masks_by_containment(output_images, output_masks, detections_with_masks, object_names, containment_threshold=0.8):
+    """基于实际mask形状去除被包含的重复分割结果"""
+    if not output_masks or len(output_masks) <= 1:
+        return output_images, output_masks, detections_with_masks, object_names
+    
+    # 转换所有mask为numpy数组用于计算
+    masks_np = []
+    for mask_tensor in output_masks:
+        if len(mask_tensor.shape) == 3:
+            # 如果是3D tensor (H, W, C)，取第一个通道
+            mask_np = mask_tensor[:, :, 0].numpy()
+        else:
+            # 如果是2D tensor (H, W)
+            mask_np = mask_tensor.numpy()
+        masks_np.append(mask_np)
+    
+    # 计算每个mask的面积，按面积排序（保留大的）
+    mask_areas = [np.sum(mask > 0.5) for mask in masks_np]
+    sorted_indices = sorted(range(len(mask_areas)), key=lambda i: mask_areas[i], reverse=True)
+    
+    keep_indices = []
+    
+    for i in sorted_indices:
+        current_mask = masks_np[i]
+        should_keep = True
+        
+        # 检查当前mask是否被已保留的任何mask包含
+        for kept_idx in keep_indices:
+            kept_mask = masks_np[kept_idx]
+            containment_ratio = calculate_mask_containment_ratio(kept_mask, current_mask)
+            
+            if containment_ratio > containment_threshold:
+                # 当前mask被包含程度超过阈值，不保留
+                obj_name = object_names[i] if i < len(object_names) else f"object_{i+1}"
+                kept_obj_name = object_names[kept_idx] if kept_idx < len(object_names) else f"object_{kept_idx+1}"
+                print(f"VVL_GroundingDinoSAM2: 移除被包含的mask - '{obj_name}'被'{kept_obj_name}'包含{containment_ratio:.2%}")
+                should_keep = False
+                break
+        
+        if should_keep:
+            keep_indices.append(i)
+    
+    # 按原始顺序排序保留的索引
+    keep_indices = sorted(keep_indices)
+    
+    if len(keep_indices) == len(output_masks):
+        # 没有需要移除的
+        return output_images, output_masks, detections_with_masks, object_names
+    
+    # 过滤结果
+    filtered_output_images = [output_images[i] for i in keep_indices] if output_images else []
+    filtered_output_masks = [output_masks[i] for i in keep_indices]
+    filtered_object_names = [object_names[i] for i in keep_indices] if object_names else []
+    
+    # 过滤detections_with_masks
+    if detections_with_masks is not None:
+        # 创建新的detections对象，只包含保留的索引
+        if hasattr(detections_with_masks, 'xyxy') and detections_with_masks.xyxy is not None:
+            filtered_xyxy = detections_with_masks.xyxy[keep_indices]
+        else:
+            filtered_xyxy = None
+            
+        if hasattr(detections_with_masks, 'mask') and detections_with_masks.mask is not None:
+            filtered_mask = detections_with_masks.mask[keep_indices]
+        else:
+            filtered_mask = None
+            
+        if hasattr(detections_with_masks, 'confidence') and detections_with_masks.confidence is not None:
+            filtered_confidence = detections_with_masks.confidence[keep_indices]
+        else:
+            filtered_confidence = None
+            
+        if hasattr(detections_with_masks, 'class_id') and detections_with_masks.class_id is not None:
+            filtered_class_id = detections_with_masks.class_id[keep_indices]
+        else:
+            filtered_class_id = None
+        
+        # 创建新的Detections对象
+        filtered_detections = sv.Detections(
+            xyxy=filtered_xyxy,
+            mask=filtered_mask,
+            confidence=filtered_confidence,
+            class_id=filtered_class_id
+        )
+        
+        # 复制data字典
+        if hasattr(detections_with_masks, 'data') and detections_with_masks.data:
+            filtered_detections.data = {}
+            for key, value in detections_with_masks.data.items():
+                if isinstance(value, (list, np.ndarray)) and len(value) == len(output_masks):
+                    if isinstance(value, list):
+                        filtered_detections.data[key] = [value[i] for i in keep_indices]
+                    else:
+                        filtered_detections.data[key] = value[keep_indices]
+                else:
+                    filtered_detections.data[key] = value
+    else:
+        filtered_detections = None
+    
+    print(f"VVL_GroundingDinoSAM2: 基于mask包含关系过滤掉 {len(output_masks) - len(keep_indices)} 个重复分割结果")
+    
+    return filtered_output_images, filtered_output_masks, filtered_detections, filtered_object_names
 
 def filter_by_area(output_images, output_masks, detections_with_masks, object_names, image_size, 
                   min_area_ratio=0.0001, max_area_ratio=0.9):
@@ -461,6 +585,13 @@ class VVL_GroundingDinoSAM2:
                     "step": 0.01,
                     "tooltip": "IoU阈值用于去除重复检测框，值越高保留的重叠框越多。建议0.3-0.7，避免同一对象被重复分割"
                 }),
+                "mask_containment_threshold": ("FLOAT", {
+                    "default": 0.8, 
+                    "min": 0, 
+                    "max": 1.0, 
+                    "step": 0.05,
+                    "tooltip": "基于实际mask形状的包含阈值，用于移除被其他mask包含的重复分割。设为0时禁用此功能，值越高越严格，0.8表示被包含80%以上才移除"
+                }),
             },
             "optional": {
                 "external_caption": ("STRING", {
@@ -499,7 +630,8 @@ class VVL_GroundingDinoSAM2:
     OUTPUT_IS_LIST = (False, True, False, True)
 
     def _process_image(self, sam2_model: dict, grounding_dino_model: str, image: torch.Tensor, 
-                      prompt: str = "", threshold: float = 0.3, iou_threshold: float = 0.5, external_caption: str = "", 
+                      prompt: str = "", threshold: float = 0.3, iou_threshold: float = 0.5, 
+                      mask_containment_threshold: float = 0.8, external_caption: str = "", 
                       load_florence2: bool = True, min_area_ratio: float = 0.0001, max_area_ratio: float = 0.9,
                       remaining_area_mask: Optional[torch.Tensor] = None):
         
@@ -624,6 +756,13 @@ class VVL_GroundingDinoSAM2:
             
             # Use SAM2 for segmentation
             output_images, output_masks, detections_with_masks = sam2_segment(sam2_model_instance, img_pil, boxes)
+            
+            # 基于实际mask形状去除重复分割（在面积过滤之前进行）
+            if output_masks and len(output_masks) > 1 and mask_containment_threshold > 0:
+                print(f"VVL_GroundingDinoSAM2: Image {i} - 应用基于mask的去重逻辑 (阈值: {mask_containment_threshold})")
+                output_images, output_masks, detections_with_masks, object_names = remove_duplicate_masks_by_containment(
+                    output_images, output_masks, detections_with_masks, object_names, containment_threshold=mask_containment_threshold
+                )
             
             # 应用面积过滤（如果有分割结果）
             if output_masks and (min_area_ratio > 0 or max_area_ratio < 1.0):
