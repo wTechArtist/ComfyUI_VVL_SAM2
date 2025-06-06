@@ -1,18 +1,23 @@
-tqdm
-einops
-spaces
-timm>=0.9.2
-transformers>=4.34.0
-gradio
-supervision
+# Core dependencies
+torch
+numpy
 opencv-python
-pytest
+supervision
+transformers>=4.34.0
+tqdm
 
-# Build dependency; getting errors so try putting it here
+# Build dependency
 flit_core>=3.2,<4
-#samv2
-# Rdancer's version of samv2 includes a fix that makes it not crash on Windows
+
+# SAM2 and related models
 git+https://github.com/rdancer/samv2.git
 git+https://github.com/facebookresearch/segment-anything.git
-git+https://github.com/facebookresearch/detectron2.git
-git+https://github.com/facebookresearch/Mask2Former.git
+
+# Note: The following dependencies were removed as they are not used in the codebase:
+# - einops (not found in any import statements)
+# - spaces (commented out in florence_sam_processor.py)  
+# - timm (not found in any import statements)
+# - gradio (commented out, not used)
+# - pytest (only needed for development/testing)
+# - detectron2 (not found in current codebase)
+# - Mask2Former (not found in current codebase)

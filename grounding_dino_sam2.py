@@ -186,6 +186,99 @@ def annotate_image(image, detections):
     output_image = LABEL_ANNOTATOR.annotate(output_image, detections)
     return output_image
 
+def resolve_duplicate_names(object_names):
+    """
+    解决对象名称重复问题，为重复的名称自动添加数字后缀
+    例如：['person', 'person', 'car', 'person'] -> ['person', 'person_2', 'car', 'person_3']
+    
+    Args:
+        object_names: 原始对象名称列表
+    
+    Returns:
+        resolved_names: 解决重复后的对象名称列表
+    """
+    if not object_names:
+        return object_names
+    
+    name_counts = {}
+    resolved_names = []
+    
+    for name in object_names:
+        # 清理名称，去除可能已存在的数字后缀
+        base_name = name
+        if '_' in name:
+            parts = name.split('_')
+            if len(parts) >= 2 and parts[-1].isdigit():
+                base_name = '_'.join(parts[:-1])
+        
+        if base_name in name_counts:
+            name_counts[base_name] += 1
+            resolved_name = f"{base_name}_{name_counts[base_name]}"
+        else:
+            name_counts[base_name] = 1
+            resolved_name = base_name
+        
+        resolved_names.append(resolved_name)
+    
+    return resolved_names
+
+def verify_data_consistency(object_names, detections_with_masks, output_masks, image_index=0):
+    """
+    验证对象名称、检测结果和mask之间的数据一致性
+    
+    Args:
+        object_names: 对象名称列表
+        detections_with_masks: supervision.Detections对象
+        output_masks: mask tensor列表
+        image_index: 图像索引（用于日志）
+    
+    Returns:
+        bool: 是否一致
+    """
+    issues = []
+    
+    # 检查基本数量
+    name_count = len(object_names) if object_names else 0
+    
+    if detections_with_masks is not None:
+        if hasattr(detections_with_masks, 'xyxy') and detections_with_masks.xyxy is not None:
+            bbox_count = len(detections_with_masks.xyxy)
+        else:
+            bbox_count = 0
+            
+        if hasattr(detections_with_masks, 'mask') and detections_with_masks.mask is not None:
+            detection_mask_count = len(detections_with_masks.mask)
+        else:
+            detection_mask_count = 0
+    else:
+        bbox_count = 0
+        detection_mask_count = 0
+    
+    output_mask_count = len(output_masks) if output_masks else 0
+    
+    # 验证数量一致性
+    if name_count != bbox_count:
+        issues.append(f"对象名称数量({name_count})与bbox数量({bbox_count})不匹配")
+    
+    if name_count != output_mask_count:
+        issues.append(f"对象名称数量({name_count})与输出mask数量({output_mask_count})不匹配")
+        
+    if bbox_count != detection_mask_count:
+        issues.append(f"bbox数量({bbox_count})与检测mask数量({detection_mask_count})不匹配")
+    
+    # 打印验证结果
+    if issues:
+        print(f"❌ VVL_GroundingDinoSAM2: Image {image_index} - 数据一致性验证失败:")
+        for issue in issues:
+            print(f"   - {issue}")
+        print(f"   对象名称: {object_names}")
+        return False
+    else:
+        print(f"✅ VVL_GroundingDinoSAM2: Image {image_index} - 数据一致性验证通过")
+        print(f"   总数: {name_count}个对象")
+        print(f"   对象名称: {object_names}")
+        return True
+
 def calculate_iou(box1, box2):
     """计算两个边界框的IoU (Intersection over Union)"""
     # box格式: [x1, y1, x2, y2]
@@ -867,6 +960,35 @@ class VVL_GroundingDinoSAM2:
                         # 追加名称
                         object_names.append("remaining_area")
 
+            # 解决对象名称重复问题，在使用names之前进行处理
+            if object_names:
+                object_names = resolve_duplicate_names(object_names)
+                print(f"VVL_GroundingDinoSAM2: Image {i} - 解决重复名称后的对象列表: {object_names}")
+
+            # 验证object_names和detections_with_masks的对应关系
+            if detections_with_masks is not None and hasattr(detections_with_masks, 'xyxy') and detections_with_masks.xyxy is not None:
+                bbox_count = len(detections_with_masks.xyxy)
+                name_count = len(object_names)
+                if bbox_count != name_count:
+                    print(f"⚠️  VVL_GroundingDinoSAM2: Image {i} - bbox数量({bbox_count})与对象名称数量({name_count})不匹配!")
+                    print(f"   bbox数量: {bbox_count}")
+                    print(f"   对象名称: {object_names}")
+                    # 修正长度不匹配的问题
+                    if name_count < bbox_count:
+                        # 如果名称数量少于bbox，补充默认名称
+                        for j in range(name_count, bbox_count):
+                            object_names.append(f"object_{j+1}")
+                        print(f"   已补充名称，最终对象列表: {object_names}")
+                    elif name_count > bbox_count:
+                        # 如果名称数量多于bbox，截取名称
+                        object_names = object_names[:bbox_count]
+                        print(f"   已截取名称，最终对象列表: {object_names}")
+                else:
+                    print(f"✅ VVL_GroundingDinoSAM2: Image {i} - bbox和对象名称数量匹配 ({bbox_count}个)")
+
+            # 最终数据一致性验证
+            verify_data_consistency(object_names, detections_with_masks, output_masks, image_index=i)
+
             # 将最终的对象名称添加到列表中
             final_object_names.extend(object_names)
             
@@ -874,11 +996,23 @@ class VVL_GroundingDinoSAM2:
             if len(object_names) > 0 and detections_with_masks is not None:
                 # 创建标签列表，确保长度与检测结果匹配
                 labels = []
-                for j in range(len(detections_with_masks)):
+                detection_count = len(detections_with_masks)
+                
+                for j in range(detection_count):
                     if j < len(object_names):
                         labels.append(object_names[j])
                     else:
-                        labels.append(f"object_{j+1}")
+                        default_label = f"object_{j+1}"
+                        labels.append(default_label)
+                        print(f"⚠️  VVL_GroundingDinoSAM2: Image {i} - 检测索引{j}没有对应的对象名称，使用默认标签: {default_label}")
+                
+                # 验证标签数量
+                if len(labels) != detection_count:
+                    print(f"❌ VVL_GroundingDinoSAM2: Image {i} - 标签数量({len(labels)})与检测数量({detection_count})不匹配!")
+                else:
+                    print(f"✅ VVL_GroundingDinoSAM2: Image {i} - 标签数量与检测数量匹配 ({detection_count}个)")
+                    for idx, label in enumerate(labels):
+                        print(f"   标注{idx}: {label}")
                 
                 # 设置detections的data字典来存储标签
                 if not hasattr(detections_with_masks, 'data') or detections_with_masks.data is None:
@@ -907,10 +1041,22 @@ class VVL_GroundingDinoSAM2:
             if detections_with_masks is not None and hasattr(detections_with_masks, 'xyxy') and detections_with_masks.xyxy is not None:
                 for j, bbox in enumerate(detections_with_masks.xyxy):
                     bbox_2d = [int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])]
+                    # 确保使用正确对应的对象名称
+                    if j < len(object_names):
+                        obj_name = object_names[j]
+                    else:
+                        obj_name = f"object_{j+1}"
+                        print(f"⚠️  VVL_GroundingDinoSAM2: Image {i} - bbox索引{j}超出对象名称范围，使用默认名称: {obj_name}")
+                    
                     detection_json["objects"].append({
-                        "name": object_names[j] if j < len(object_names) else f"object_{j+1}",
+                        "name": obj_name,
                         "bbox_2d": bbox_2d
                     })
+                    
+                # 添加调试信息
+                print(f"📋 VVL_GroundingDinoSAM2: Image {i} - 生成了{len(detection_json['objects'])}个检测对象的JSON")
+                for idx, obj in enumerate(detection_json["objects"]):
+                    print(f"   {idx}: {obj['name']} -> bbox{obj['bbox_2d']}")
             
             # Format JSON with single-line bbox_2d
             json_str = json.dumps(detection_json, ensure_ascii=False, indent=2)
