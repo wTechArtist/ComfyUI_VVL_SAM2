@@ -45,6 +45,17 @@ except ImportError:
         CLEANER_NODE_MAPPINGS = {}
         CLEANER_DISPLAY_MAPPINGS = {}
 
+# Import the Detection Scaler node
+try:
+    from detection_scaler import NODE_CLASS_MAPPINGS as SCALER_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as SCALER_DISPLAY_MAPPINGS
+except ImportError:
+    try:
+        from .detection_scaler import NODE_CLASS_MAPPINGS as SCALER_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as SCALER_DISPLAY_MAPPINGS
+    except ImportError:
+        print("Warning: Could not import VVL_DetectionScaler node")
+        SCALER_NODE_MAPPINGS = {}
+        SCALER_DISPLAY_MAPPINGS = {}
+
 # Import Panoptic nodes (SAM1 Auto Everything only, Mask2Former moved to separate plugin)
 try:
     from .panoptic.sam_auto_everything import NODE_CLASS_MAPPINGS as PAN_NODE1, NODE_DISPLAY_NAME_MAPPINGS as PAN_DISP1
@@ -165,6 +176,9 @@ NODE_CLASS_MAPPINGS.update(LOADER_NODE_MAPPINGS)
 # Add the VVL Mask Cleaner node if available
 NODE_CLASS_MAPPINGS.update(CLEANER_NODE_MAPPINGS)
 
+# Add the VVL Detection Scaler node if available
+NODE_CLASS_MAPPINGS.update(SCALER_NODE_MAPPINGS)
+
 # Append panoptic nodes (only SAM1 Auto Everything)
 NODE_CLASS_MAPPINGS.update(PAN_NODE1)
 
@@ -180,6 +194,9 @@ NODE_DISPLAY_NAME_MAPPINGS.update(LOADER_DISPLAY_MAPPINGS)
 
 # Add display name mappings for cleaner node
 NODE_DISPLAY_NAME_MAPPINGS.update(CLEANER_DISPLAY_MAPPINGS)
+
+# Add display name mappings for scaler node
+NODE_DISPLAY_NAME_MAPPINGS.update(SCALER_DISPLAY_MAPPINGS)
 
 # Add display name mappings for panoptic nodes (only SAM1 Auto Everything)
 NODE_DISPLAY_NAME_MAPPINGS.update(PAN_DISP1)
