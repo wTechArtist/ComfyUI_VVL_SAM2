@@ -62,6 +62,39 @@ try:
 except ImportError:
     PAN_NODE1, PAN_DISP1 = {}, {}
 
+# Import the Video Processing node
+try:
+    from florence_sam_video_processor import NODE_CLASS_MAPPINGS as VIDEO_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as VIDEO_DISPLAY_MAPPINGS
+except ImportError:
+    try:
+        from .florence_sam_video_processor import NODE_CLASS_MAPPINGS as VIDEO_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as VIDEO_DISPLAY_MAPPINGS
+    except ImportError:
+        print("Warning: Could not import VVL_Florence2SAM2Video node")
+        VIDEO_NODE_MAPPINGS = {}
+        VIDEO_DISPLAY_MAPPINGS = {}
+
+# Import the Video Loader nodes
+try:
+    from video_loader import NODE_CLASS_MAPPINGS as VIDEO_LOADER_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as VIDEO_LOADER_DISPLAY_MAPPINGS
+except ImportError:
+    try:
+        from .video_loader import NODE_CLASS_MAPPINGS as VIDEO_LOADER_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as VIDEO_LOADER_DISPLAY_MAPPINGS
+    except ImportError:
+        print("Warning: Could not import VVL Video Loader nodes")
+        VIDEO_LOADER_NODE_MAPPINGS = {}
+        VIDEO_LOADER_DISPLAY_MAPPINGS = {}
+
+# Import the GroundingDINO + SAM2 Video Sequence node
+try:
+    from grounding_dino_sam2_video import NODE_CLASS_MAPPINGS as VIDEO_SEQ_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as VIDEO_SEQ_DISPLAY_MAPPINGS
+except ImportError:
+    try:
+        from .grounding_dino_sam2_video import NODE_CLASS_MAPPINGS as VIDEO_SEQ_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as VIDEO_SEQ_DISPLAY_MAPPINGS
+    except ImportError:
+        print("Warning: Could not import VVL_GroundingDinoSAM2_VideoSequence node")
+        VIDEO_SEQ_NODE_MAPPINGS = {}
+        VIDEO_SEQ_DISPLAY_MAPPINGS = {}
+
 # Format conversion helpers adapted from LayerStyle -- but LayerStyle has them
 # wrong: this is not the place to squeeze/unsqueeze.
 #
@@ -182,6 +215,15 @@ NODE_CLASS_MAPPINGS.update(SCALER_NODE_MAPPINGS)
 # Append panoptic nodes (only SAM1 Auto Everything)
 NODE_CLASS_MAPPINGS.update(PAN_NODE1)
 
+# Add the Video Processing node if available
+NODE_CLASS_MAPPINGS.update(VIDEO_NODE_MAPPINGS)
+
+# Add the Video Loader nodes if available
+NODE_CLASS_MAPPINGS.update(VIDEO_LOADER_NODE_MAPPINGS)
+
+# Add the GroundingDINO + SAM2 Video Sequence node if available
+NODE_CLASS_MAPPINGS.update(VIDEO_SEQ_NODE_MAPPINGS)
+
 NODE_DISPLAY_NAME_MAPPINGS = {
     "VVL_Florence2SAM2": "VVL Florence2 + SAM2"
 }
@@ -200,6 +242,15 @@ NODE_DISPLAY_NAME_MAPPINGS.update(SCALER_DISPLAY_MAPPINGS)
 
 # Add display name mappings for panoptic nodes (only SAM1 Auto Everything)
 NODE_DISPLAY_NAME_MAPPINGS.update(PAN_DISP1)
+
+# Add display name mappings for video node
+NODE_DISPLAY_NAME_MAPPINGS.update(VIDEO_DISPLAY_MAPPINGS)
+
+# Add display name mappings for video loader nodes
+NODE_DISPLAY_NAME_MAPPINGS.update(VIDEO_LOADER_DISPLAY_MAPPINGS)
+
+# Add display name mappings for video sequence node
+NODE_DISPLAY_NAME_MAPPINGS.update(VIDEO_SEQ_DISPLAY_MAPPINGS)
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
 
