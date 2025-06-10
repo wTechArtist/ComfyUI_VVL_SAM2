@@ -22,41 +22,24 @@ except ImportError:
     from .utils.modes import IMAGE_INFERENCE_MODES, IMAGE_OPEN_VOCABULARY_DETECTION_MODE, IMAGE_CAPTION_GROUNDING_MASKS_MODE, VIDEO_INFERENCE_MODES
     from .mask_cleaner import remove_small_regions
 
-# GroundingDINO imports (adapted from node.py)
+# GroundingDINO imports
 import logging
-from torch.hub import download_url_to_file
-from urllib.parse import urlparse
-import folder_paths
 import comfy.model_management
-import glob
 
-# GroundingDINO specific imports
+# Import GroundingDINO loader
 try:
+    from grounding_dino_loader import groundingdino_model_list
     from local_groundingdino.datasets import transforms as T
-    from local_groundingdino.util.utils import clean_state_dict as local_groundingdino_clean_state_dict
-    from local_groundingdino.util.slconfig import SLConfig as local_groundingdino_SLConfig
-    from local_groundingdino.models import build_model as local_groundingdino_build_model
 except ImportError:
-    print("Warning: GroundingDINO dependencies not found. Please install them.")
-    T = None
-    local_groundingdino_clean_state_dict = None
-    local_groundingdino_SLConfig = None
-    local_groundingdino_build_model = None
+    try:
+        from .grounding_dino_loader import groundingdino_model_list
+        from local_groundingdino.datasets import transforms as T
+    except ImportError:
+        print("Warning: GroundingDINO dependencies not found. Please install them.")
+        T = None
+        groundingdino_model_list = {}
 
 logger = logging.getLogger('vvl_GroundingDinoSAM2')
-
-# GroundingDINO model configurations
-groundingdino_model_dir_name = "grounding-dino"
-groundingdino_model_list = {
-    "GroundingDINO_SwinT_OGC (694MB)": {
-        "config_url": "https://huggingface.co/ShilongLiu/GroundingDINO/resolve/main/GroundingDINO_SwinT_OGC.cfg.py",
-        "model_url": "https://huggingface.co/ShilongLiu/GroundingDINO/resolve/main/groundingdino_swint_ogc.pth",
-    },
-    "GroundingDINO_SwinB (938MB)": {
-        "config_url": "https://huggingface.co/ShilongLiu/GroundingDINO/resolve/main/GroundingDINO_SwinB.cfg.py",
-        "model_url": "https://huggingface.co/ShilongLiu/GroundingDINO/resolve/main/groundingdino_swinb_cogcoor.pth"
-    },
-}
 
 # Format conversion helpers
 def tensor2pil(t_image: torch.Tensor) -> Image.Image:
@@ -65,61 +48,7 @@ def tensor2pil(t_image: torch.Tensor) -> Image.Image:
 def pil2tensor(image: Image.Image) -> torch.Tensor:
     return torch.from_numpy(np.array(image).astype(np.float32) / 255.0)
 
-# GroundingDINO utility functions (adapted from node.py)
-def get_bert_base_uncased_model_path():
-    comfy_bert_model_base = os.path.join(folder_paths.models_dir, 'bert-base-uncased')
-    if glob.glob(os.path.join(comfy_bert_model_base, '**/model.safetensors'), recursive=True):
-        print('grounding-dino is using models/bert-base-uncased')
-        return comfy_bert_model_base
-    return 'bert-base-uncased'
-
-def get_local_filepath(url, dirname, local_file_name=None):
-    if not local_file_name:
-        parsed_url = urlparse(url)
-        local_file_name = os.path.basename(parsed_url.path)
-
-    destination = folder_paths.get_full_path(dirname, local_file_name)
-    if destination:
-        logger.warn(f'using extra model: {destination}')
-        return destination
-
-    folder = os.path.join(folder_paths.models_dir, dirname)
-    if not os.path.exists(folder):
-        os.makedirs(folder)
-
-    destination = os.path.join(folder, local_file_name)
-    if not os.path.exists(destination):
-        logger.warn(f'downloading {url} to {destination}')
-        download_url_to_file(url, destination)
-    return destination
-
-def load_groundingdino_model(model_name):
-    if local_groundingdino_SLConfig is None:
-        raise ImportError("GroundingDINO dependencies not available")
-        
-    dino_model_args = local_groundingdino_SLConfig.fromfile(
-        get_local_filepath(
-            groundingdino_model_list[model_name]["config_url"],
-            groundingdino_model_dir_name
-        ),
-    )
-
-    if dino_model_args.text_encoder_type == 'bert-base-uncased':
-        dino_model_args.text_encoder_type = get_bert_base_uncased_model_path()
-    
-    dino = local_groundingdino_build_model(dino_model_args)
-    checkpoint = torch.load(
-        get_local_filepath(
-            groundingdino_model_list[model_name]["model_url"],
-            groundingdino_model_dir_name,
-        ),
-    )
-    dino.load_state_dict(local_groundingdino_clean_state_dict(
-        checkpoint['model']), strict=False)
-    device = comfy.model_management.get_torch_device()
-    dino.to(device=device)
-    dino.eval()
-    return dino
+# GroundingDINO prediction function
 
 def groundingdino_predict(dino_model, image, prompt, threshold):
     def load_dino_image(image_pil):
@@ -620,30 +549,15 @@ def sam2_segment(sam_model, image, boxes):
     
     return output_images, output_masks, detections_with_masks
 
-# Global variables for GroundingDINO model management
-GROUNDING_DINO_MODEL = None
-CURRENT_GROUNDING_DINO_MODEL_NAME = None
-
-def lazy_load_grounding_dino_model(grounding_dino_model_name: str):
-    global GROUNDING_DINO_MODEL, CURRENT_GROUNDING_DINO_MODEL_NAME
-    
-    # Load GroundingDINO model
-    if GROUNDING_DINO_MODEL is None or CURRENT_GROUNDING_DINO_MODEL_NAME != grounding_dino_model_name:
-        GROUNDING_DINO_MODEL = load_groundingdino_model(grounding_dino_model_name)
-        CURRENT_GROUNDING_DINO_MODEL_NAME = grounding_dino_model_name
+# GroundingDINO model management functions (removed - now using dedicated loader node)
 
 class VVL_GroundingDinoSAM2:
     @classmethod
     def INPUT_TYPES(cls):
-        grounding_dino_models = list(groundingdino_model_list.keys())
-        
         return {
             "required": {
                 "sam2_model": ("VVL_SAM2_MODEL", {"tooltip": "SAM2分割模型，用于对检测到的对象进行精确分割"}),
-                "grounding_dino_model": (grounding_dino_models, {
-                    "default": grounding_dino_models[0],
-                    "tooltip": "GroundingDINO目标检测模型，用于根据文本提示检测图像中的对象。SwinT_OGC模型较小但速度快，SwinB模型较大但精度更高"
-                }),
+                "grounding_dino_model": ("VVL_GROUNDING_DINO_MODEL", {"tooltip": "GroundingDINO目标检测模型，用于根据文本提示检测图像中的对象"}),
                 "image": ("IMAGE", {"tooltip": "输入的图像，支持批量处理多张图像"}),
                 "external_caption": ("STRING", {
                     "multiline": True,
@@ -721,8 +635,11 @@ class VVL_GroundingDinoSAM2:
             sam2_model_instance = sam2_model['model']
             device = sam2_model.get('device', 'cpu')
             
-            # 加载GroundingDINO模型
-            lazy_load_grounding_dino_model(grounding_dino_model)
+            # 从传入的grounding_dino_model字典中获取模型
+            if not isinstance(grounding_dino_model, dict) or 'model' not in grounding_dino_model:
+                raise ValueError("Invalid grounding_dino_model format")
+                
+            grounding_dino_model_instance = grounding_dino_model['model']
             
             # 清理输入文本
             external_caption_clean = external_caption.strip() if external_caption else ""
@@ -759,7 +676,7 @@ class VVL_GroundingDinoSAM2:
                         boxes = torch.zeros((0, 4))
                     else:
                         for phrase in current_detection_phrases:
-                            boxes_single = groundingdino_predict(GROUNDING_DINO_MODEL, img_pil, phrase, threshold)
+                            boxes_single = groundingdino_predict(grounding_dino_model_instance, img_pil, phrase, threshold)
                             if boxes_single.shape[0] > 0:
                                 all_boxes_list.append(boxes_single)
                                 object_names.extend([phrase] * boxes_single.shape[0])
@@ -772,7 +689,7 @@ class VVL_GroundingDinoSAM2:
                         print(f"VVL_GroundingDinoSAM2: Image {i+1} - Retrying with lower threshold {fallback_thresh}")
                         
                         for phrase in current_detection_phrases:
-                            boxes_single = groundingdino_predict(GROUNDING_DINO_MODEL, img_pil, phrase, fallback_thresh)
+                            boxes_single = groundingdino_predict(grounding_dino_model_instance, img_pil, phrase, fallback_thresh)
                             if boxes_single.shape[0] > 0:
                                 all_boxes_list.append(boxes_single)
                                 object_names.extend([phrase] * boxes_single.shape[0])

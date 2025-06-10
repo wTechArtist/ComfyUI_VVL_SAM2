@@ -23,6 +23,17 @@ except ImportError:
         VVL_NODE_MAPPINGS = {}
         VVL_DISPLAY_MAPPINGS = {}
 
+# Import the GroundingDINO Loader node
+try:
+    from grounding_dino_loader import NODE_CLASS_MAPPINGS as GDINO_LOADER_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as GDINO_LOADER_DISPLAY_MAPPINGS
+except ImportError:
+    try:
+        from .grounding_dino_loader import NODE_CLASS_MAPPINGS as GDINO_LOADER_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as GDINO_LOADER_DISPLAY_MAPPINGS
+    except ImportError:
+        print("Warning: Could not import VVL_GroundingDinoLoader node")
+        GDINO_LOADER_MAPPINGS = {}
+        GDINO_LOADER_DISPLAY_MAPPINGS = {}
+
 # Import the SAM2 loader node
 try:
     from model_loader import NODE_CLASS_MAPPINGS as LOADER_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as LOADER_DISPLAY_MAPPINGS
@@ -181,6 +192,9 @@ NODE_CLASS_MAPPINGS = {
 # Add the VVL GroundingDINO + SAM2 node if available
 NODE_CLASS_MAPPINGS.update(VVL_NODE_MAPPINGS)
 
+# Add the VVL GroundingDINO Loader node if available
+NODE_CLASS_MAPPINGS.update(GDINO_LOADER_MAPPINGS)
+
 # Add the VVL SAM2 Loader node if available
 NODE_CLASS_MAPPINGS.update(LOADER_NODE_MAPPINGS)
 
@@ -203,7 +217,10 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 # Add display name mappings for VVL nodes
 NODE_DISPLAY_NAME_MAPPINGS.update(VVL_DISPLAY_MAPPINGS)
 
-# Add display name mappings for loader node
+# Add display name mappings for GroundingDINO loader node
+NODE_DISPLAY_NAME_MAPPINGS.update(GDINO_LOADER_DISPLAY_MAPPINGS)
+
+# Add display name mappings for SAM2 loader node
 NODE_DISPLAY_NAME_MAPPINGS.update(LOADER_DISPLAY_MAPPINGS)
 
 # Add display name mappings for cleaner node
