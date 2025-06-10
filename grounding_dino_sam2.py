@@ -12,8 +12,6 @@ try:
     from florence_sam_processor import process_image
     from utils.sam import model_to_config_map as sam_model_to_config_map
     from utils.sam import load_sam_image_model, run_sam_inference
-    from utils.florence import load_florence_model, run_florence_inference, \
-        FLORENCE_OPEN_VOCABULARY_DETECTION_TASK, FLORENCE_DETAILED_CAPTION_TASK, FLORENCE_CAPTION_TO_PHRASE_GROUNDING_TASK
     from utils.modes import IMAGE_INFERENCE_MODES, IMAGE_OPEN_VOCABULARY_DETECTION_MODE, IMAGE_CAPTION_GROUNDING_MASKS_MODE, VIDEO_INFERENCE_MODES
     from mask_cleaner import remove_small_regions
 except ImportError:
@@ -21,8 +19,6 @@ except ImportError:
     from .florence_sam_processor import process_image
     from .utils.sam import model_to_config_map as sam_model_to_config_map
     from .utils.sam import load_sam_image_model, run_sam_inference
-    from .utils.florence import load_florence_model, run_florence_inference, \
-        FLORENCE_OPEN_VOCABULARY_DETECTION_TASK, FLORENCE_DETAILED_CAPTION_TASK, FLORENCE_CAPTION_TO_PHRASE_GROUNDING_TASK
     from .utils.modes import IMAGE_INFERENCE_MODES, IMAGE_OPEN_VOCABULARY_DETECTION_MODE, IMAGE_CAPTION_GROUNDING_MASKS_MODE, VIDEO_INFERENCE_MODES
     from .mask_cleaner import remove_small_regions
 
@@ -624,28 +620,17 @@ def sam2_segment(sam_model, image, boxes):
     
     return output_images, output_masks, detections_with_masks
 
-# Global variables for GroundingDINO and Florence2 model management
+# Global variables for GroundingDINO model management
 GROUNDING_DINO_MODEL = None
-FLORENCE_MODEL = None
-FLORENCE_PROCESSOR = None
 CURRENT_GROUNDING_DINO_MODEL_NAME = None
 
-def lazy_load_grounding_dino_florence_models(grounding_dino_model_name: str, load_florence2: bool = True):
-    global GROUNDING_DINO_MODEL, FLORENCE_MODEL, FLORENCE_PROCESSOR, CURRENT_GROUNDING_DINO_MODEL_NAME
+def lazy_load_grounding_dino_model(grounding_dino_model_name: str):
+    global GROUNDING_DINO_MODEL, CURRENT_GROUNDING_DINO_MODEL_NAME
     
     # Load GroundingDINO model
     if GROUNDING_DINO_MODEL is None or CURRENT_GROUNDING_DINO_MODEL_NAME != grounding_dino_model_name:
         GROUNDING_DINO_MODEL = load_groundingdino_model(grounding_dino_model_name)
         CURRENT_GROUNDING_DINO_MODEL_NAME = grounding_dino_model_name
-    
-    # Load Florence-2 model (for caption generation when needed)
-    if load_florence2 and (FLORENCE_MODEL is None or FLORENCE_PROCESSOR is None):
-        device = comfy.model_management.get_torch_device()
-        try:
-            from utils.florence import load_florence_model
-        except ImportError:
-            from .utils.florence import load_florence_model
-        FLORENCE_MODEL, FLORENCE_PROCESSOR = load_florence_model(device=device)
 
 class VVL_GroundingDinoSAM2:
     @classmethod
@@ -660,9 +645,10 @@ class VVL_GroundingDinoSAM2:
                     "tooltip": "GroundingDINO目标检测模型，用于根据文本提示检测图像中的对象。SwinT_OGC模型较小但速度快，SwinB模型较大但精度更高"
                 }),
                 "image": ("IMAGE", {"tooltip": "输入的图像，支持批量处理多张图像"}),
-                "prompt": ("STRING", {
+                "external_caption": ("STRING", {
+                    "multiline": True,
                     "default": "",
-                    "tooltip": "目标检测的文本提示词，用逗号分隔多个对象，如'person,car,dog'。留空时将使用Florence-2自动生成描述"
+                    "tooltip": "图像描述文本或待检测对象列表，用逗号分隔，如'person,car,dog'"
                 }),
                 "threshold": ("FLOAT", {
                     "default": 0.3, 
@@ -687,15 +673,6 @@ class VVL_GroundingDinoSAM2:
                 }),
             },
             "optional": {
-                "external_caption": ("STRING", {
-                    "multiline": True, 
-                    "default": "",
-                    "tooltip": "外部提供的图像描述文本，用逗号分隔多个对象。当prompt为空时，优先使用此描述进行目标检测"
-                }),
-                "load_florence2": ("BOOLEAN", {
-                    "default": True,
-                    "tooltip": "是否加载Florence-2模型用于自动生成图像描述。当prompt和external_caption都为空时，将自动描述图像内容并进行检测"
-                }),
                 "min_area_ratio": ("FLOAT", {
                     "default": 0.002, 
                     "min": 0, 
@@ -722,353 +699,276 @@ class VVL_GroundingDinoSAM2:
     CATEGORY = "💃rDancer"
     OUTPUT_IS_LIST = (False, True, False, True)
 
-    def _process_image(self, sam2_model: dict, grounding_dino_model: str, image: torch.Tensor, 
-                      prompt: str = "", threshold: float = 0.3, iou_threshold: float = 0.5, 
-                      mask_containment_threshold: float = 0.8, external_caption: str = "", 
-                      load_florence2: bool = True, min_area_ratio: float = 0.0001, max_area_ratio: float = 0.9,
-                      remaining_area_mask: Optional[torch.Tensor] = None):
+    def _process_image(self, sam2_model, grounding_dino_model, image, external_caption, 
+                      threshold=0.3, iou_threshold=0.5, mask_containment_threshold=0.8,
+                      min_area_ratio=0.002, max_area_ratio=0.2, remaining_area_mask=None):
         
-        # 从SAM2模型字典中获取模型和设备信息
-        sam2_model_instance = sam2_model['model']
-        device = sam2_model['device']
-        
-        # 加载GroundingDINO和Florence2模型
-        lazy_load_grounding_dino_florence_models(grounding_dino_model, load_florence2)
-        
-        prompt_clean = prompt.strip() if prompt else ""
-        external_caption_clean = external_caption.strip() if external_caption else ""
-        
-        annotated_images, object_masks_list, detection_jsons, final_object_names = [], [], [], []
-        
-        for i, img_tensor in enumerate(image):
-            img_pil = tensor2pil(img_tensor).convert("RGB")
+        try:
+            # 输入验证和安全检查
+            if not isinstance(image, torch.Tensor):
+                raise ValueError(f"Expected image to be torch.Tensor, got {type(image)}")
             
-            # Determine processing mode
-            current_detection_phrases = []
-            detection_mode_info = ""
-
-            if prompt_clean != "":
-                # Mode 1: Direct prompt with GroundingDINO
-                current_detection_phrases = [p.strip() for p in prompt_clean.split(',') if p.strip()]
-                if not current_detection_phrases and prompt_clean:
-                    current_detection_phrases = [prompt_clean.strip()]
-                detection_mode_info = f"direct prompt list: {current_detection_phrases}"
+            if image.dim() != 4:
+                raise ValueError(f"Expected image to have 4 dimensions (batch, height, width, channels), got {image.dim()}")
                 
-            elif external_caption_clean != "":
-                # Mode 2: Use external caption for grounding
-                current_detection_phrases = [c.strip() for c in external_caption_clean.split(',') if c.strip()]
-                if not current_detection_phrases and external_caption_clean:
-                    current_detection_phrases = [external_caption_clean.strip()]
-                detection_mode_info = f"external caption list: {current_detection_phrases}"
+            batch_size = image.shape[0]
+            print(f"VVL_GroundingDinoSAM2: Processing {batch_size} images")
+            
+            # 从SAM2模型字典中获取模型和设备信息
+            if not isinstance(sam2_model, dict) or 'model' not in sam2_model:
+                raise ValueError("Invalid sam2_model format")
                 
-            else:
-                # Mode 3: Generate caption with Florence-2, then use for grounding
-                if load_florence2 and FLORENCE_MODEL is not None and FLORENCE_PROCESSOR is not None:
-                    print(f"VVL_GroundingDinoSAM2: Image {i} - Generating caption with Florence-2.")
-                    _, result_caption = run_florence_inference(
-                        model=FLORENCE_MODEL,
-                        processor=FLORENCE_PROCESSOR,
-                        device=device,
-                        image=img_pil,
-                        task=FLORENCE_DETAILED_CAPTION_TASK
-                    )
-                    generated_caption = result_caption[FLORENCE_DETAILED_CAPTION_TASK]
-                    current_detection_phrases = [c.strip() for c in generated_caption.split(',') if c.strip()]
-                    if not current_detection_phrases and generated_caption:
-                        current_detection_phrases = [generated_caption.strip()]
-                    detection_mode_info = f"Florence-2 generated caption list: {current_detection_phrases}"
-                else:
-                    print("VVL_GroundingDinoSAM2: Florence-2 model not available, skipping caption generation.")
+            sam2_model_instance = sam2_model['model']
+            device = sam2_model.get('device', 'cpu')
+            
+            # 加载GroundingDINO模型
+            lazy_load_grounding_dino_model(grounding_dino_model)
+            
+            # 清理输入文本
+            external_caption_clean = external_caption.strip() if external_caption else ""
+            
+            # 初始化结果列表
+            annotated_images = []
+            object_masks_list = []
+            detection_jsons = []
+            final_object_names = []
+            
+            # 处理每张图像
+            for i in range(batch_size):
+                try:
+                    img_tensor = image[i]
+                    img_pil = tensor2pil(img_tensor).convert("RGB")
+                    
+                    print(f"VVL_GroundingDinoSAM2: Processing image {i+1}/{batch_size}")
+                    
+                    # 解析检测短语
                     current_detection_phrases = []
-                    detection_mode_info = "No detection phrases available"
-
-            print(f"VVL_GroundingDinoSAM2: Image {i} - Mode: {detection_mode_info}")
-
-            object_names = []
-            all_boxes_list = []
-            
-            if not current_detection_phrases:
-                print(f"VVL_GroundingDinoSAM2: Image {i} - No detection phrases to process.")
-                boxes = torch.zeros((0,4))
-            else:
-                for phrase_idx, phrase in enumerate(current_detection_phrases):
-                    boxes_single = groundingdino_predict(GROUNDING_DINO_MODEL, img_pil, phrase, threshold)
-                    if boxes_single.shape[0] > 0:
-                        all_boxes_list.append(boxes_single)
-                        object_names.extend([phrase] * boxes_single.shape[0])
-                
-                if len(all_boxes_list) > 0:
-                    boxes = torch.cat(all_boxes_list, dim=0)
-                else:
-                    boxes = torch.zeros((0,4))
-            
-            # Fallback logic if no boxes found with initial threshold
-            if boxes.shape[0] == 0 and threshold > 0.15 and current_detection_phrases:
-                fallback_thresh = max(0.1, threshold * 0.5)
-                print(f"VVL_GroundingDinoSAM2: Image {i} - No boxes found with threshold {threshold}. Lowering to {fallback_thresh} and retrying.")
-                
-                all_boxes_list_fallback = []
-                object_names_fallback = []
-
-                for phrase_idx, phrase in enumerate(current_detection_phrases):
-                    boxes_single_fallback = groundingdino_predict(GROUNDING_DINO_MODEL, img_pil, phrase, fallback_thresh)
-                    if boxes_single_fallback.shape[0] > 0:
-                        all_boxes_list_fallback.append(boxes_single_fallback)
-                        object_names_fallback.extend([phrase] * boxes_single_fallback.shape[0])
-                
-                if len(all_boxes_list_fallback) > 0:
-                    boxes = torch.cat(all_boxes_list_fallback, dim=0)
-                    object_names = object_names_fallback
-                else:
-                    object_names = [] 
-                    boxes = torch.zeros((0,4))
-
-            print(f"VVL_GroundingDinoSAM2: Image {i} - Total boxes found for SAM2 input: {boxes.shape[0]}")
-            if boxes.shape[0] > 0:
-                print(f"VVL_GroundingDinoSAM2: Image {i} - Corresponding object names: {object_names}")
-
-            # 应用边界框去重逻辑，避免重复分割同一个对象
-            if boxes.shape[0] > 0:
-                boxes_before_dedup = boxes.shape[0]
-                boxes, object_names = remove_duplicate_boxes(boxes, object_names, iou_threshold)
-                boxes_after_dedup = boxes.shape[0]
-                if boxes_before_dedup != boxes_after_dedup:
-                    print(f"VVL_GroundingDinoSAM2: Image {i} - Removed {boxes_before_dedup - boxes_after_dedup} duplicate boxes (IoU threshold: {iou_threshold})")
-                    print(f"VVL_GroundingDinoSAM2: Image {i} - Final boxes for SAM2: {boxes_after_dedup}")
-
-            if boxes.shape[0] == 0:
-                print("VVL_GroundingDinoSAM2: No objects detected.")
-                # Create empty results
-                annotated_images.append(pil2tensor(img_pil))
-                detection_jsons.append(json.dumps({
-                    "image_width": img_pil.width,
-                    "image_height": img_pil.height,
-                    "objects": []
-                }, ensure_ascii=False, indent=2))
-                continue
-            
-            # Use SAM2 for segmentation
-            output_images, output_masks, detections_with_masks = sam2_segment(sam2_model_instance, img_pil, boxes)
-            
-            # 基于实际mask形状去除重复分割（在面积过滤之前进行）
-            if output_masks and len(output_masks) > 1 and mask_containment_threshold > 0:
-                print(f"VVL_GroundingDinoSAM2: Image {i} - 应用基于mask的去重逻辑 (阈值: {mask_containment_threshold})")
-                output_images, output_masks, detections_with_masks, object_names = remove_duplicate_masks_by_containment(
-                    output_images, output_masks, detections_with_masks, object_names, containment_threshold=mask_containment_threshold
-                )
-            
-            # 应用面积过滤（如果有分割结果）
-            if output_masks and (min_area_ratio > 0 or max_area_ratio < 1.0):
-                print(f"VVL_GroundingDinoSAM2: Image {i} - 应用面积过滤（最小比例: {min_area_ratio}, 最大比例: {max_area_ratio}）")
-                output_images, output_masks, detections_with_masks, object_names = filter_by_area(
-                    output_images, output_masks, detections_with_masks, object_names, 
-                    (img_pil.width, img_pil.height), min_area_ratio, max_area_ratio
-                )
-                
-                # 如果所有结果都被面积过滤掉了
-                if not output_masks:
-                    print(f"VVL_GroundingDinoSAM2: Image {i} - 所有分割结果都被面积过滤掉了")
-                    annotated_images.append(pil2tensor(img_pil))
-                    detection_jsons.append(json.dumps({
+                    if external_caption_clean:
+                        current_detection_phrases = [c.strip() for c in external_caption_clean.split(',') if c.strip()]
+                        if not current_detection_phrases and external_caption_clean:
+                            current_detection_phrases = [external_caption_clean.strip()]
+                        print(f"VVL_GroundingDinoSAM2: Image {i+1} - Detection phrases: {current_detection_phrases}")
+                    else:
+                        print(f"VVL_GroundingDinoSAM2: Image {i+1} - No external_caption provided")
+                    
+                    # 执行目标检测
+                    object_names = []
+                    all_boxes_list = []
+                    
+                    if not current_detection_phrases:
+                        boxes = torch.zeros((0, 4))
+                    else:
+                        for phrase in current_detection_phrases:
+                            boxes_single = groundingdino_predict(GROUNDING_DINO_MODEL, img_pil, phrase, threshold)
+                            if boxes_single.shape[0] > 0:
+                                all_boxes_list.append(boxes_single)
+                                object_names.extend([phrase] * boxes_single.shape[0])
+                        
+                        boxes = torch.cat(all_boxes_list, dim=0) if all_boxes_list else torch.zeros((0, 4))
+                    
+                    # 后备逻辑：如果没有检测到对象，尝试降低阈值
+                    if boxes.shape[0] == 0 and threshold > 0.15 and current_detection_phrases:
+                        fallback_thresh = max(0.1, threshold * 0.5)
+                        print(f"VVL_GroundingDinoSAM2: Image {i+1} - Retrying with lower threshold {fallback_thresh}")
+                        
+                        for phrase in current_detection_phrases:
+                            boxes_single = groundingdino_predict(GROUNDING_DINO_MODEL, img_pil, phrase, fallback_thresh)
+                            if boxes_single.shape[0] > 0:
+                                all_boxes_list.append(boxes_single)
+                                object_names.extend([phrase] * boxes_single.shape[0])
+                        
+                        boxes = torch.cat(all_boxes_list, dim=0) if all_boxes_list else torch.zeros((0, 4))
+                    
+                    print(f"VVL_GroundingDinoSAM2: Image {i+1} - Found {boxes.shape[0]} boxes")
+                    
+                    if boxes.shape[0] == 0:
+                        # 没有检测到对象，返回原始图像
+                        annotated_images.append(pil2tensor(img_pil))
+                        detection_jsons.append(json.dumps({
+                            "image_width": img_pil.width,
+                            "image_height": img_pil.height,
+                            "objects": []
+                        }, ensure_ascii=False, indent=2))
+                        continue
+                    
+                    # 去重复边界框
+                    if boxes.shape[0] > 0:
+                        boxes, object_names = remove_duplicate_boxes(boxes, object_names, iou_threshold)
+                        print(f"VVL_GroundingDinoSAM2: Image {i+1} - After deduplication: {boxes.shape[0]} boxes")
+                    
+                    # SAM2分割
+                    output_images, output_masks, detections_with_masks = sam2_segment(sam2_model_instance, img_pil, boxes)
+                    
+                    # 应用各种过滤器
+                    if output_masks and len(output_masks) > 1 and mask_containment_threshold > 0:
+                        output_images, output_masks, detections_with_masks, object_names = remove_duplicate_masks_by_containment(
+                            output_images, output_masks, detections_with_masks, object_names, containment_threshold=mask_containment_threshold
+                        )
+                    
+                    if output_masks and (min_area_ratio > 0 or max_area_ratio < 1.0):
+                        output_images, output_masks, detections_with_masks, object_names = filter_by_area(
+                            output_images, output_masks, detections_with_masks, object_names, 
+                            (img_pil.width, img_pil.height), min_area_ratio, max_area_ratio
+                        )
+                    
+                    # 处理剩余区域mask
+                    if remaining_area_mask is not None and output_masks:
+                        try:
+                            if remaining_area_mask.dim() == 4 and i < remaining_area_mask.shape[0]:
+                                cur_input_mask = remaining_area_mask[i]
+                            elif remaining_area_mask.dim() == 3:
+                                cur_input_mask = remaining_area_mask
+                            else:
+                                print(f"VVL_GroundingDinoSAM2: Warning - Cannot process remaining_area_mask for image {i+1}")
+                                cur_input_mask = None
+                            
+                            if cur_input_mask is not None:
+                                # 处理剩余区域逻辑...
+                                input_mask_np = cur_input_mask.cpu().numpy()
+                                if input_mask_np.ndim == 3:
+                                    if input_mask_np.shape[0] == 1:
+                                        input_mask_np = input_mask_np[0]
+                                    else:
+                                        input_mask_np = input_mask_np[:, :, 0]
+                                input_mask_bool = np.squeeze(input_mask_np) > 0.5
+                                
+                                # 合并已有mask
+                                combined_existing = np.zeros_like(input_mask_bool, dtype=bool)
+                                for m_tensor in output_masks:
+                                    m_np = m_tensor.cpu().numpy()
+                                    if m_np.ndim == 3:
+                                        if m_np.shape[0] == 1:
+                                            m_np = m_np[0]
+                                        else:
+                                            m_np = m_np[:, :, 0]
+                                    combined_existing |= (m_np > 0.5)
+                                
+                                # 计算剩余区域
+                                remain_bool = np.logical_and(input_mask_bool, np.logical_not(combined_existing))
+                                
+                                if np.sum(remain_bool) > 0:
+                                    remain_uint8 = (remain_bool * 255).astype(np.uint8)
+                                    remain_cleaned = remove_small_regions(remain_uint8, keep_largest_n=1)
+                                    remain_bool_cleaned = remain_cleaned > 127
+                                    
+                                    if np.sum(remain_bool_cleaned) > 0:
+                                        remain_mask_pil = Image.fromarray(remain_cleaned).convert("L")
+                                        remain_mask_tensor = pil2tensor(remain_mask_pil)
+                                        output_masks.append(remain_mask_tensor)
+                                        
+                                        img_np_copy = copy.deepcopy(np.array(img_pil))
+                                        img_np_copy[~remain_bool_cleaned] = np.array([0, 0, 0])
+                                        remain_image_pil = Image.fromarray(img_np_copy)
+                                        output_images.append(pil2tensor(remain_image_pil.convert("RGB")))
+                                        
+                                        # 更新检测结果
+                                        ys, xs = np.where(remain_bool_cleaned)
+                                        x_min, x_max = int(xs.min()), int(xs.max())
+                                        y_min, y_max = int(ys.min()), int(ys.max())
+                                        bbox_tensor = torch.tensor([x_min, y_min, x_max, y_max], dtype=torch.float32)
+                                        
+                                        if detections_with_masks is None:
+                                            detections_with_masks = sv.Detections(xyxy=bbox_tensor.unsqueeze(0), mask=np.asarray([remain_bool_cleaned]))
+                                        else:
+                                            if hasattr(detections_with_masks, 'xyxy') and detections_with_masks.xyxy is not None:
+                                                if isinstance(detections_with_masks.xyxy, np.ndarray):
+                                                    bbox_np = bbox_tensor.cpu().numpy()[None, :]
+                                                    detections_with_masks.xyxy = np.concatenate([detections_with_masks.xyxy, bbox_np], axis=0)
+                                                else:
+                                                    detections_with_masks.xyxy = torch.cat([detections_with_masks.xyxy, bbox_tensor.unsqueeze(0)], dim=0)
+                                            
+                                            if hasattr(detections_with_masks, 'mask') and detections_with_masks.mask is not None:
+                                                detections_with_masks.mask = np.concatenate([detections_with_masks.mask, remain_bool_cleaned[None, :, :]], axis=0)
+                                        
+                                        object_names.append("remaining_area")
+                        
+                        except Exception as e:
+                            print(f"VVL_GroundingDinoSAM2: Error processing remaining_area_mask for image {i+1}: {e}")
+                    
+                    # 解决重复名称
+                    if object_names:
+                        object_names = resolve_duplicate_names(object_names)
+                    
+                    # 验证数据一致性
+                    verify_data_consistency(object_names, detections_with_masks, output_masks, image_index=i+1)
+                    
+                    # 添加到最终结果
+                    final_object_names.extend(object_names)
+                    
+                    # 标注图像
+                    if len(object_names) > 0 and detections_with_masks is not None:
+                        labels = []
+                        detection_count = len(detections_with_masks)
+                        
+                        for j in range(detection_count):
+                            if j < len(object_names):
+                                labels.append(object_names[j])
+                            else:
+                                labels.append(f"object_{j+1}")
+                        
+                        if not hasattr(detections_with_masks, 'data') or detections_with_masks.data is None:
+                            detections_with_masks.data = {}
+                        detections_with_masks.data['class_name'] = labels
+                        
+                        annotated_img = annotate_image(img_pil, detections_with_masks)
+                        annotated_images.append(pil2tensor(annotated_img))
+                    else:
+                        annotated_images.append(pil2tensor(img_pil))
+                    
+                    # 添加masks到列表
+                    if output_masks:
+                        object_masks_list.extend(output_masks)
+                    
+                    # 创建检测JSON
+                    detection_json = {
                         "image_width": img_pil.width,
                         "image_height": img_pil.height,
                         "objects": []
+                    }
+                    
+                    if detections_with_masks is not None and hasattr(detections_with_masks, 'xyxy') and detections_with_masks.xyxy is not None:
+                        for j, bbox in enumerate(detections_with_masks.xyxy):
+                            bbox_2d = [int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])]
+                            obj_name = object_names[j] if j < len(object_names) else f"object_{j+1}"
+                            detection_json["objects"].append({
+                                "name": obj_name,
+                                "bbox_2d": bbox_2d
+                            })
+                    
+                    json_str = json.dumps(detection_json, ensure_ascii=False, indent=2)
+                    json_str = re.sub(r'"bbox_2d":\s*\[\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\s*\]', 
+                                     r'"bbox_2d": [\1,\2,\3,\4]', json_str)
+                    detection_jsons.append(json_str)
+                    
+                except Exception as e:
+                    print(f"VVL_GroundingDinoSAM2: Error processing image {i+1}: {e}")
+                    # 添加空结果以保持批次一致性
+                    annotated_images.append(pil2tensor(tensor2pil(img_tensor).convert("RGB")))
+                    detection_jsons.append(json.dumps({
+                        "image_width": 512,
+                        "image_height": 512,
+                        "objects": []
                     }, ensure_ascii=False, indent=2))
-                    continue
             
-            # 处理 remaining_area_mask，生成剩余区域mask
-            if remaining_area_mask is not None:
-                # 取得当前批次对应的输入mask
-                if remaining_area_mask.ndim == 4:
-                    cur_input_mask = remaining_area_mask[i]
-                else:
-                    cur_input_mask = remaining_area_mask
-
-                # 转换为 (H, W) 的布尔数组
-                input_mask_np = cur_input_mask.cpu().numpy()
-                if input_mask_np.ndim == 3:
-                    # 处理形状为 (C, H, W) 或 (H, W, C)
-                    if input_mask_np.shape[0] == 1:  # (1, H, W)
-                        input_mask_np = input_mask_np[0]
-                    else:  # (H, W, 1) 或其他
-                        input_mask_np = input_mask_np[:, :, 0]
-                input_mask_bool = np.squeeze(input_mask_np) > 0.5
-
-                # 合并已有的所有mask
-                combined_existing = np.zeros_like(input_mask_bool, dtype=bool)
-                for m_tensor in output_masks:
-                    m_np = m_tensor.cpu().numpy()
-                    if m_np.ndim == 3:
-                        if m_np.shape[0] == 1:
-                            m_np = m_np[0]
-                        else:
-                            m_np = m_np[:, :, 0]
-                    combined_existing |= (m_np > 0.5)
-
-                # 计算剩余区域 (输入mask 交 非已分割区域)
-                remain_bool = np.logical_and(input_mask_bool, np.logical_not(combined_existing))
-
-                if np.sum(remain_bool) > 0:
-                    # 清理零碎区域，只保留最大的连通域
-                    remain_uint8 = (remain_bool * 255).astype(np.uint8)
-                    remain_cleaned = remove_small_regions(remain_uint8, keep_largest_n=1)
-                    remain_bool_cleaned = remain_cleaned > 127
-                    
-                    # 如果清理后还有区域存在，则继续处理
-                    if np.sum(remain_bool_cleaned) > 0:
-                        # 生成mask tensor
-                        remain_mask_pil = Image.fromarray(remain_cleaned).convert("L")
-                        remain_mask_tensor = pil2tensor(remain_mask_pil)
-                        output_masks.append(remain_mask_tensor)
-
-                        # 生成对应的masked image
-                        img_np_full = np.array(img_pil)
-                        img_np_copy = copy.deepcopy(img_np_full)
-                        if len(img_np_copy.shape) == 3:
-                            img_np_copy[~remain_bool_cleaned] = np.array([0, 0, 0])
-                        else:
-                            img_np_copy[~remain_bool_cleaned] = np.array([0, 0, 0, 0])
-                        remain_image_pil = Image.fromarray(img_np_copy)
-                        output_images.append(pil2tensor(remain_image_pil.convert("RGB")))
-
-                        # 计算bbox（基于清理后的mask）
-                        ys, xs = np.where(remain_bool_cleaned)
-                        x_min, x_max = int(xs.min()), int(xs.max())
-                        y_min, y_max = int(ys.min()), int(ys.max())
-                        bbox_tensor = torch.tensor([x_min, y_min, x_max, y_max], dtype=torch.float32)
-
-                        # 更新 detections_with_masks
-                        if detections_with_masks is None:
-                            detections_with_masks = sv.Detections(xyxy=bbox_tensor.unsqueeze(0), mask=np.asarray([remain_bool_cleaned]))
-                        else:
-                            # 根据现有 xyxy 的数据类型决定拼接方式，避免 numpy 与 tensor 冲突
-                            if hasattr(detections_with_masks, 'xyxy') and detections_with_masks.xyxy is not None:
-                                if isinstance(detections_with_masks.xyxy, np.ndarray):
-                                    bbox_np = bbox_tensor.cpu().numpy()[None, :]
-                                    detections_with_masks.xyxy = np.concatenate([detections_with_masks.xyxy, bbox_np], axis=0)
-                                else:
-                                    detections_with_masks.xyxy = torch.cat([detections_with_masks.xyxy, bbox_tensor.unsqueeze(0)], dim=0)
-                            else:
-                                # 初始为空时沿用 bbox 的类型
-                                detections_with_masks.xyxy = bbox_tensor.unsqueeze(0)
-                            # mask
-                            if hasattr(detections_with_masks, 'mask') and detections_with_masks.mask is not None:
-                                detections_with_masks.mask = np.concatenate([detections_with_masks.mask, remain_bool_cleaned[None, :, :]], axis=0)
-                            else:
-                                detections_with_masks.mask = np.asarray([remain_bool_cleaned])
-                        
-                        # 追加名称
-                        object_names.append("remaining_area")
-
-            # 解决对象名称重复问题，在使用names之前进行处理
-            if object_names:
-                object_names = resolve_duplicate_names(object_names)
-                print(f"VVL_GroundingDinoSAM2: Image {i} - 解决重复名称后的对象列表: {object_names}")
-
-            # 验证object_names和detections_with_masks的对应关系
-            if detections_with_masks is not None and hasattr(detections_with_masks, 'xyxy') and detections_with_masks.xyxy is not None:
-                bbox_count = len(detections_with_masks.xyxy)
-                name_count = len(object_names)
-                if bbox_count != name_count:
-                    print(f"⚠️  VVL_GroundingDinoSAM2: Image {i} - bbox数量({bbox_count})与对象名称数量({name_count})不匹配!")
-                    print(f"   bbox数量: {bbox_count}")
-                    print(f"   对象名称: {object_names}")
-                    # 修正长度不匹配的问题
-                    if name_count < bbox_count:
-                        # 如果名称数量少于bbox，补充默认名称
-                        for j in range(name_count, bbox_count):
-                            object_names.append(f"object_{j+1}")
-                        print(f"   已补充名称，最终对象列表: {object_names}")
-                    elif name_count > bbox_count:
-                        # 如果名称数量多于bbox，截取名称
-                        object_names = object_names[:bbox_count]
-                        print(f"   已截取名称，最终对象列表: {object_names}")
-                else:
-                    print(f"✅ VVL_GroundingDinoSAM2: Image {i} - bbox和对象名称数量匹配 ({bbox_count}个)")
-
-            # 最终数据一致性验证
-            verify_data_consistency(object_names, detections_with_masks, output_masks, image_index=i)
-
-            # 将最终的对象名称添加到列表中
-            final_object_names.extend(object_names)
+            # 堆叠结果
+            annotated_images_stacked = torch.stack(annotated_images) if annotated_images else torch.empty(0)
+            final_detection_json = detection_jsons[0] if detection_jsons else "{}"
             
-            # 使用supervision库的标注器来标注图像
-            if len(object_names) > 0 and detections_with_masks is not None:
-                # 创建标签列表，确保长度与检测结果匹配
-                labels = []
-                detection_count = len(detections_with_masks)
-                
-                for j in range(detection_count):
-                    if j < len(object_names):
-                        labels.append(object_names[j])
-                    else:
-                        default_label = f"object_{j+1}"
-                        labels.append(default_label)
-                        print(f"⚠️  VVL_GroundingDinoSAM2: Image {i} - 检测索引{j}没有对应的对象名称，使用默认标签: {default_label}")
-                
-                # 验证标签数量
-                if len(labels) != detection_count:
-                    print(f"❌ VVL_GroundingDinoSAM2: Image {i} - 标签数量({len(labels)})与检测数量({detection_count})不匹配!")
-                else:
-                    print(f"✅ VVL_GroundingDinoSAM2: Image {i} - 标签数量与检测数量匹配 ({detection_count}个)")
-                    for idx, label in enumerate(labels):
-                        print(f"   标注{idx}: {label}")
-                
-                # 设置detections的data字典来存储标签
-                if not hasattr(detections_with_masks, 'data') or detections_with_masks.data is None:
-                    detections_with_masks.data = {}
-                detections_with_masks.data['class_name'] = labels
-                
-                # 使用与app.py相同的annotate_image函数
-                annotated_img = annotate_image(img_pil, detections_with_masks)
-                annotated_images.append(pil2tensor(annotated_img))
-            else:
-                # 如果没有检测到对象，则返回原始图像
-                annotated_images.append(pil2tensor(img_pil))
+            print(f"VVL_GroundingDinoSAM2: Processing completed. Generated {len(object_masks_list)} masks")
             
-            # Add masks to the list
-            if output_masks:
-                object_masks_list.extend(output_masks)
+            return (annotated_images_stacked, object_masks_list, final_detection_json, final_object_names)
             
-            # Create detection JSON
-            detection_json = {
-                "image_width": img_pil.width,
-                "image_height": img_pil.height,
-                "objects": []
-            }
+        except Exception as e:
+            print(f"VVL_GroundingDinoSAM2: Critical error: {e}")
+            import traceback
+            traceback.print_exc()
             
-            # 使用过滤后的检测结果来生成JSON
-            if detections_with_masks is not None and hasattr(detections_with_masks, 'xyxy') and detections_with_masks.xyxy is not None:
-                for j, bbox in enumerate(detections_with_masks.xyxy):
-                    bbox_2d = [int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])]
-                    # 确保使用正确对应的对象名称
-                    if j < len(object_names):
-                        obj_name = object_names[j]
-                    else:
-                        obj_name = f"object_{j+1}"
-                        print(f"⚠️  VVL_GroundingDinoSAM2: Image {i} - bbox索引{j}超出对象名称范围，使用默认名称: {obj_name}")
-                    
-                    detection_json["objects"].append({
-                        "name": obj_name,
-                        "bbox_2d": bbox_2d
-                    })
-                    
-                # 添加调试信息
-                print(f"📋 VVL_GroundingDinoSAM2: Image {i} - 生成了{len(detection_json['objects'])}个检测对象的JSON")
-                for idx, obj in enumerate(detection_json["objects"]):
-                    print(f"   {idx}: {obj['name']} -> bbox{obj['bbox_2d']}")
+            # 返回安全的默认结果
+            batch_size = image.shape[0] if hasattr(image, 'shape') else 1
+            empty_images = torch.zeros((batch_size, 512, 512, 3))
+            empty_json = json.dumps({"image_width": 512, "image_height": 512, "objects": []})
             
-            # Format JSON with single-line bbox_2d
-            json_str = json.dumps(detection_json, ensure_ascii=False, indent=2)
-            json_str = re.sub(r'"bbox_2d":\s*\[\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\s*\]', 
-                             r'"bbox_2d": [\1,\2,\3,\4]', json_str)
-            detection_jsons.append(json_str)
-        
-        # Stack results
-        annotated_images_stacked = torch.stack(annotated_images) if annotated_images else torch.empty(0)
-        final_detection_json = detection_jsons[0] if detection_jsons else "{}"
-        
-        return (annotated_images_stacked, object_masks_list, final_detection_json, final_object_names)
+            return (empty_images, [], empty_json, [])
 
 # Node registration
 NODE_CLASS_MAPPINGS = {

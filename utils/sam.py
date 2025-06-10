@@ -11,6 +11,8 @@ from sam2.sam2_image_predictor import SAM2ImagePredictor
 import importlib
 import shutil
 import filecmp
+import comfy.model_management as mm
+from contextlib import nullcontext
 
 model_to_config_map = {
     # models: sam2_hiera_base_plus.pt  sam2_hiera_large.pt  sam2_hiera_small.pt  sam2_hiera_tiny.pt
@@ -175,15 +177,27 @@ def run_sam_inference(predictor: SAM2ImagePredictor, image: Image.Image, detecti
 
     # 将 PIL 转为 numpy RGB
     image_np = np.array(image.convert("RGB"))
-    predictor.set_image(image_np)
+    
+    # 获取设备信息和精度类型，参考 nodes.py 的做法
+    device = predictor.device
+    model = predictor.model
+    
+    # 确定autocast设置，避免MPS设备的问题
+    autocast_condition = not mm.is_device_mps(device)
+    # 使用fp16作为默认精度，与大多数SAM2模型兼容
+    dtype = torch.float16 if device.type == 'cuda' and torch.cuda.is_available() else torch.float32
+    
+    # 使用autocast包装SAM推理，解决"No available kernel"问题
+    with torch.autocast(mm.get_autocast_device(device), dtype=dtype) if autocast_condition else nullcontext():
+        predictor.set_image(image_np)
 
-    if hasattr(detections, "xyxy") and detections.xyxy is not None and len(detections.xyxy) > 0:
-        # SAM2ImagePredictor 兼容 predict(box=...)
-        masks, scores, _ = predictor.predict(box=detections.xyxy, multimask_output=False)
-    else:
-        # 若没有 bbox，则直接返回
-        print("run_sam_inference: detections.xyxy 为空，直接返回原 detections", flush=True)
-        return detections
+        if hasattr(detections, "xyxy") and detections.xyxy is not None and len(detections.xyxy) > 0:
+            # SAM2ImagePredictor 兼容 predict(box=...)
+            masks, scores, _ = predictor.predict(box=detections.xyxy, multimask_output=False)
+        else:
+            # 若没有 bbox，则直接返回
+            print("run_sam_inference: detections.xyxy 为空，直接返回原 detections", flush=True)
+            return detections
 
     # SAM 返回 shape: [N, 1, H, W] 或 [N, H, W]
     if len(masks.shape) == 4:

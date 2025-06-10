@@ -56,6 +56,17 @@ except ImportError:
         SCALER_NODE_MAPPINGS = {}
         SCALER_DISPLAY_MAPPINGS = {}
 
+# Import the Mask to BBox node
+try:
+    from mask_to_bbox import NODE_CLASS_MAPPINGS as BBOX_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as BBOX_DISPLAY_MAPPINGS
+except ImportError:
+    try:
+        from .mask_to_bbox import NODE_CLASS_MAPPINGS as BBOX_NODE_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS as BBOX_DISPLAY_MAPPINGS
+    except ImportError:
+        print("Warning: Could not import VVL_MaskToBBox node")
+        BBOX_NODE_MAPPINGS = {}
+        BBOX_DISPLAY_MAPPINGS = {}
+
 # Import Panoptic nodes (SAM1 Auto Everything only, Mask2Former moved to separate plugin)
 try:
     from .panoptic.sam_auto_everything import NODE_CLASS_MAPPINGS as PAN_NODE1, NODE_DISPLAY_NAME_MAPPINGS as PAN_DISP1
@@ -179,6 +190,9 @@ NODE_CLASS_MAPPINGS.update(CLEANER_NODE_MAPPINGS)
 # Add the VVL Detection Scaler node if available
 NODE_CLASS_MAPPINGS.update(SCALER_NODE_MAPPINGS)
 
+# Add the VVL Mask to BBox node if available
+NODE_CLASS_MAPPINGS.update(BBOX_NODE_MAPPINGS)
+
 # Append panoptic nodes (only SAM1 Auto Everything)
 NODE_CLASS_MAPPINGS.update(PAN_NODE1)
 
@@ -197,6 +211,9 @@ NODE_DISPLAY_NAME_MAPPINGS.update(CLEANER_DISPLAY_MAPPINGS)
 
 # Add display name mappings for scaler node
 NODE_DISPLAY_NAME_MAPPINGS.update(SCALER_DISPLAY_MAPPINGS)
+
+# Add display name mappings for bbox node
+NODE_DISPLAY_NAME_MAPPINGS.update(BBOX_DISPLAY_MAPPINGS)
 
 # Add display name mappings for panoptic nodes (only SAM1 Auto Everything)
 NODE_DISPLAY_NAME_MAPPINGS.update(PAN_DISP1)

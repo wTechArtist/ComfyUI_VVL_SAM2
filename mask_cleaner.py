@@ -86,13 +86,13 @@ def fill_internal_holes(mask: np.ndarray) -> np.ndarray:
     return filled_mask
 
 
-def remove_small_regions(mask: np.ndarray, keep_largest_n: int = 1) -> np.ndarray:
+def remove_small_regions(mask: np.ndarray) -> np.ndarray:
     """
-    清除零碎的小遮罩，只保留最大的N个区域
+    清除零碎的小遮罩，只保留最大的区域
     
     核心思路：
     - 分析所有白色连通域的面积
-    - 按面积排序，只保留最大的N个
+    - 按面积排序，只保留最大的区域
     - 删除其他所有区域
     """
     # 1. 连通域分析
@@ -105,15 +105,15 @@ def remove_small_regions(mask: np.ndarray, keep_largest_n: int = 1) -> np.ndarra
     # 3. 创建新的清理后的mask
     cleaned_mask = np.zeros_like(mask)
     
-    # 4. 只保留最大的N个区域
-    for i in range(min(keep_largest_n, len(areas))):
-        label_id, area = areas[i]
+    # 4. 只保留最大的区域
+    if len(areas) > 0:
+        label_id, area = areas[0]
         cleaned_mask[labels == label_id] = 255
     
     return cleaned_mask
 
 
-def process_mask(mask: np.ndarray, keep_largest_n: int = 1, processing_mode: str = "both") -> Tuple[np.ndarray, str]:
+def process_mask(mask: np.ndarray, processing_mode: str = "both") -> Tuple[np.ndarray, str]:
     """
     主处理函数 - 按顺序执行mask清理操作
     """
@@ -130,7 +130,7 @@ def process_mask(mask: np.ndarray, keep_largest_n: int = 1, processing_mode: str
     # 步骤2：清除零碎遮罩
     if processing_mode in ["both", "clean_only"]:
         original_regions = count_regions(processed_mask)
-        processed_mask = remove_small_regions(processed_mask, keep_largest_n)
+        processed_mask = remove_small_regions(processed_mask)
         remaining_regions = count_regions(processed_mask)
         removed_regions = original_regions - remaining_regions
         processing_info.append(f"已清理{removed_regions}个零碎遮罩，保留{remaining_regions}个主要区域")
@@ -152,14 +152,6 @@ class VVL_MaskCleaner:
                 }),
             },
             "optional": {
-                # 核心控制参数
-                "keep_largest_n": ("INT", {
-                    "default": 1,
-                    "min": 1,
-                    "max": 10,
-                    "tooltip": "保留最大的N个白色区域，其他区域会被删除"
-                }),
-                
                 # 处理模式
                 "processing_mode": (["both", "fill_only", "clean_only"], {
                     "default": "both",
@@ -174,7 +166,7 @@ class VVL_MaskCleaner:
     FUNCTION = "clean_masks"
     CATEGORY = "💃rDancer"
     
-    def clean_masks(self, masks, keep_largest_n=1, processing_mode="both"):
+    def clean_masks(self, masks, processing_mode="both"):
         """
         清理mask的主函数
         """
@@ -211,7 +203,7 @@ class VVL_MaskCleaner:
             # 处理单个mask
             try:
                 cleaned_mask_np, info = process_mask(
-                    mask_np, keep_largest_n, processing_mode
+                    mask_np, processing_mode
                 )
                 all_processing_info.append(f"Mask {i+1}: {info}")
             except Exception as e:
