@@ -31,7 +31,7 @@ class VVL_SAM2Loader:
             }
         }
 
-    RETURN_TYPES = ("VVL_SAM2_MODEL",)
+    RETURN_TYPES = ("SAM2MODEL",)
     RETURN_NAMES = ("sam2_model",)
     FUNCTION = "load_sam2_model"
     CATEGORY = "💃rDancer"

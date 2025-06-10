@@ -126,7 +126,7 @@ class F2S2GenerateMask:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "sam2_model": ("VVL_SAM2_MODEL",),
+                "sam2_model": ("SAM2MODEL",),
                 "image": ("IMAGE",),
                 "prompt": ("STRING", {"default": ""}),
                 "iou_threshold": ("FLOAT", {"default": 0.5, "min": 0, "max": 1.0, "step": 0.01}),
@@ -145,9 +145,12 @@ class F2S2GenerateMask:
 
     def _process_image(self, sam2_model: dict, image: torch.Tensor, prompt: str = "", 
                       iou_threshold: float = 0.5, external_caption: str = ""):
-        # 从SAM2模型字典中获取设备和模型名称信息
+        # 从SAM2模型字典中获取设备信息（SAM2MODEL格式）
         device = sam2_model['device']
-        model_name = sam2_model['model_name']
+        # SAM2MODEL格式没有model_name字段，使用版本和分割器信息构建名称
+        version = sam2_model.get('version', '2.0')
+        segmentor = sam2_model.get('segmentor', 'single_image')
+        model_name = f"sam2_{version}_{segmentor}"
         
         prompt_clean = prompt.strip() if prompt else ""
         external_caption_clean = external_caption.strip() if external_caption else ""

@@ -556,8 +556,8 @@ class VVL_GroundingDinoSAM2:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "sam2_model": ("VVL_SAM2_MODEL", {"tooltip": "SAM2分割模型，用于对检测到的对象进行精确分割"}),
-                "grounding_dino_model": ("VVL_GROUNDING_DINO_MODEL", {"tooltip": "GroundingDINO目标检测模型，用于根据文本提示检测图像中的对象"}),
+                "sam2_model": ("SAM2MODEL", {"tooltip": "SAM2分割模型，用于对检测到的对象进行精确分割"}),
+                "grounding_dino_model": ("GROUNDING_DINO_MODEL", {"tooltip": "GroundingDINO目标检测模型，用于根据文本提示检测图像中的对象"}),
                 "image": ("IMAGE", {"tooltip": "输入的图像，支持批量处理多张图像"}),
                 "external_caption": ("STRING", {
                     "multiline": True,

@@ -124,7 +124,7 @@ class VVL_GroundingDinoLoader:
             }
         }
 
-    RETURN_TYPES = ("VVL_GROUNDING_DINO_MODEL",)
+    RETURN_TYPES = ("GROUNDING_DINO_MODEL",)
     RETURN_NAMES = ("grounding_dino_model",)
     FUNCTION = "load_model"
     CATEGORY = "💃rDancer/loaders"
