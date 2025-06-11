@@ -88,22 +88,53 @@ SAM_IMAGE_MODEL = None
 # SAM_VIDEO_MODEL = load_sam_video_model(device=DEVICE)
 COLORS = ['#FF1493', '#00BFFF', '#FF6347', '#FFD700', '#32CD32', '#8A2BE2']
 COLOR_PALETTE = sv.ColorPalette.from_hex(COLORS)
-BOX_ANNOTATOR = sv.BoxAnnotator(color=COLOR_PALETTE, color_lookup=sv.ColorLookup.INDEX, thickness=2) # Default thickness
-LABEL_ANNOTATOR = sv.LabelAnnotator(
-    color=COLOR_PALETTE,
-    color_lookup=sv.ColorLookup.INDEX,
-    text_position=sv.Position.CENTER_OF_MASS, # Changed from TOP_CENTER for better visibility
-    text_color=sv.Color.from_hex("#000000"),
-    text_scale=0.5, # Default scale
-    text_thickness=1, # Default thickness
-    text_padding=2, # Default padding
-    border_radius=3 # Default radius
-)
-MASK_ANNOTATOR = sv.MaskAnnotator(
-    color=COLOR_PALETTE,
-    color_lookup=sv.ColorLookup.INDEX,
-    opacity=0.5 # Default opacity
-)
+
+# 兼容不同版本的supervision
+try:
+    # 新版本 supervision (>= 0.21.0)
+    BOX_ANNOTATOR = sv.BoxAnnotator(color=COLOR_PALETTE, color_lookup=sv.ColorLookup.INDEX, thickness=2)
+    LABEL_ANNOTATOR = sv.LabelAnnotator(
+        color=COLOR_PALETTE,
+        color_lookup=sv.ColorLookup.INDEX,
+        text_position=sv.Position.CENTER_OF_MASS,
+        text_color=sv.Color.from_hex("#000000"),
+        text_scale=0.5,
+        text_thickness=1,
+        text_padding=2,
+        border_radius=3
+    )
+    MASK_ANNOTATOR = sv.MaskAnnotator(
+        color=COLOR_PALETTE,
+        color_lookup=sv.ColorLookup.INDEX,
+        opacity=0.5
+    )
+except AttributeError:
+    # 旧版本 supervision (0.6.0)
+    BOX_ANNOTATOR = sv.BoxAnnotator(color=COLOR_PALETTE)
+    MASK_ANNOTATOR = sv.MaskAnnotator(color=COLOR_PALETTE)
+    
+    # supervision 0.6.0 没有 LabelAnnotator，创建一个简单的替代品
+    class SimpleLabelAnnotator:
+        def __init__(self, color=None, **kwargs):
+            self.color = color
+            
+        def annotate(self, scene, detections, labels=None):
+            # 如果没有标签，直接返回原图像
+            if not labels or len(labels) == 0:
+                return scene
+            
+            import cv2
+            output = scene.copy()
+            
+            for i, (box, label) in enumerate(zip(detections.xyxy, labels)):
+                x1, y1, x2, y2 = map(int, box)
+                # 在框的左上角绘制标签
+                cv2.putText(output, str(label), (x1, y1-10), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+            
+            return output
+    
+    LABEL_ANNOTATOR = SimpleLabelAnnotator(color=COLOR_PALETTE)
 
 
 # IoU计算和NMS函数

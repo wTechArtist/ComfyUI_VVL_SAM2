@@ -9,12 +9,20 @@ import comfy.model_management
 
 # GroundingDINO specific imports
 try:
+    # Add current directory to path to ensure local_groundingdino can be imported
+    import sys
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    if current_dir not in sys.path:
+        sys.path.insert(0, current_dir)
+    
     from local_groundingdino.datasets import transforms as T
     from local_groundingdino.util.utils import clean_state_dict as local_groundingdino_clean_state_dict
     from local_groundingdino.util.slconfig import SLConfig as local_groundingdino_SLConfig
     from local_groundingdino.models import build_model as local_groundingdino_build_model
-except ImportError:
-    print("Warning: GroundingDINO dependencies not found. Please install them.")
+    print("✅ GroundingDINO dependencies loaded successfully")
+except ImportError as e:
+    print(f"❌ Warning: GroundingDINO dependencies not found: {e}")
+    print("Please check if local_groundingdino directory exists and has proper __init__.py files")
     T = None
     local_groundingdino_clean_state_dict = None
     local_groundingdino_SLConfig = None

@@ -9,6 +9,11 @@ pytest
 # Build dependency
 flit_core>=3.2,<4
 
+# GroundingDINO dependencies
+timm
+addict
+yapf
+
 # SAM2 and related models
 git+https://github.com/rdancer/samv2.git
 git+https://github.com/facebookresearch/segment-anything.git
@@ -16,7 +21,6 @@ git+https://github.com/facebookresearch/segment-anything.git
 # Note: The following dependencies were removed as they are not used in the codebase:
 # - einops (not found in any import statements)
 # - spaces (commented out in florence_sam_processor.py)  
-# - timm (not found in any import statements)
 # - gradio (commented out, not used)
 # - pytest (only needed for development/testing)
 # - detectron2 (not found in current codebase)

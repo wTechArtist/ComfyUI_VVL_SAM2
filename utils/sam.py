@@ -32,8 +32,19 @@ SAM_CONFIG = "sam2_hiera_s.yaml" # from /usr/local/lib/python3.10/dist-packages/
 
 # --- Directories ---
 # Dynamically get the sam2 models directory registered with ComfyUI
-# Typically ComfyUI/models/sam2/
-SAM2_MODELS_DIR = os.path.join(folder_paths.get_folder_paths("sam2")[0])
+# Typically ComfyUI/models/sam2/ or fallback to ComfyUI/models/sams/
+try:
+    SAM2_MODELS_DIR = os.path.join(folder_paths.get_folder_paths("sam2")[0])
+except (KeyError, IndexError):
+    # Fallback to sams directory if sam2 doesn't exist
+    try:
+        SAM2_MODELS_DIR = os.path.join(folder_paths.get_folder_paths("sams")[0])
+    except (KeyError, IndexError):
+        # Final fallback to default models directory
+        SAM2_MODELS_DIR = os.path.join(folder_paths.models_dir, "sam2")
+        print(f"Warning: Neither 'sam2' nor 'sams' folder found in ComfyUI. Using fallback: {SAM2_MODELS_DIR}")
+        # Ensure the directory exists
+        os.makedirs(SAM2_MODELS_DIR, exist_ok=True)
 
 # Dynamically get the sam2 package's 'configs' directory
 try:
