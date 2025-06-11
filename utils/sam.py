@@ -29,7 +29,7 @@ model_to_config_map = {
 }
 SAM_CHECKPOINT = "sam2_hiera_small.pt"
 SAM_CONFIG = "sam2_hiera_s.yaml" # from /usr/local/lib/python3.10/dist-packages/sam2/configs, *not* from either the models directory, or this package's directory
-
+folder_paths.add_model_folder_path("sam2", os.path.join(folder_paths.models_dir, "sam2"), True) # 添加 sam2 目录到 ComfyUI 的模型路径
 # --- Directories ---
 # Dynamically get the sam2 models directory registered with ComfyUI
 # Typically ComfyUI/models/sam2/ or fallback to ComfyUI/models/sams/
